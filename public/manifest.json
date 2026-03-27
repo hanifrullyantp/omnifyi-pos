@@ -1,0 +1,12 @@
+{
+  "name": "Omnifyi POS",
+  "short_name": "Omnifyi",
+  "description": "Omnifyi POS — kelola bisnis, kasir, dan keuangan",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#0f766e",
+  "icons": []
+}

@@ -1,0 +1,17 @@
+# Dependencies & build
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env (jangan commit secret)
+.env
+.env.local
+.env.*.local
+
+# Vercel CLI (berisi link proyek; aman di-ignore jika Anda prefer hanya Git integration)
+.vercel
+
+# Editor / OS
+.DS_Store
+*.log
