@@ -1,4 +1,4 @@
-import { db } from './db';
+import { db, provisionEmptyOwnerFromCheckout } from './db';
 
 type PackageId = 'starter' | 'growth' | 'pro';
 
@@ -16,6 +16,35 @@ function buildLoginInstruction(orderId: string) {
   const tempPassword = `Omnifyi#${orderId.slice(-6)}`;
   const setPasswordLink = `https://pos.omnifyi.com/create-password?order=${encodeURIComponent(orderId)}`;
   return { tempPassword, setPasswordLink };
+}
+
+export async function startMidtransCheckout(params: {
+  leadId: string;
+  packageId: PackageId;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string;
+  amount: number;
+}) {
+  const res = await fetch('/api/billing/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Checkout gagal: HTTP ${res.status}${t ? ` (${t.slice(0, 180)})` : ''}`);
+  }
+  return (await res.json()) as { orderId: string; token: string; redirectUrl: string };
+}
+
+export async function checkMidtransPaid(orderId: string) {
+  const res = await fetch(`/api/billing/status?orderId=${encodeURIComponent(orderId)}`);
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Cek status gagal: HTTP ${res.status}${t ? ` (${t.slice(0, 180)})` : ''}`);
+  }
+  return (await res.json()) as { paid: boolean; transaction_status?: string };
 }
 
 export async function runLocalBillingFlow(input: StartBillingInput) {
@@ -38,6 +67,11 @@ export async function runLocalBillingFlow(input: StartBillingInput) {
 
   await sleep(900);
   const authProvision = buildLoginInstruction(input.orderId);
+  await provisionEmptyOwnerFromCheckout({
+    email: input.buyerEmail,
+    buyerName: input.buyerName,
+    tempPassword: authProvision.tempPassword,
+  });
   await db.crmLeads.update(input.leadId, {
     stage: 'ONBOARDED',
     updatedAt: new Date(),

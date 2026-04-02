@@ -16,6 +16,12 @@ export type SessionStatus = 'ACTIVE' | 'CLOSED';
 export type CashflowType = 'INCOME' | 'EXPENSE';
 export type AccountCategory = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
 export type AccountSubCategory = string;
+export type StoreDayStatus = 'OPEN' | 'CLOSED';
+export type StockOpnameStatus = 'DRAFT' | 'FINAL';
+export type StockOpnameApprovalStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED';
+export type StockAdjustmentReason = 'OPNAME' | 'MANUAL';
+export type TaskStatus = 'TODO' | 'DOING' | 'DONE';
+export type TaskColumnKind = 'DEFAULT' | 'CUSTOM';
 
 export interface User {
   id?: string;
@@ -63,6 +69,43 @@ export interface Business {
   skuAutoPrefix?: string;
   defaultUnit?: string;
   printerPaperMm?: 58 | 80;
+  /** If true, cashier must do stock opname after closing store day */
+  requireStockOpnameAfterClose?: boolean;
+  /** If true, submitted stock opname auto-approved and applies stock */
+  stockOpnameAutoApprove?: boolean;
+  /** Enable manual non-cash payment methods showing destination accounts */
+  manualPaymentEnabled?: boolean;
+  /** Require proof photo for manual non-cash payments */
+  manualPaymentProofRequired?: boolean;
+}
+
+export type ManualPaymentAccountType = 'BANK' | 'EWALLET';
+export type ManualPaymentAccountProvider =
+  | 'BCA'
+  | 'BRI'
+  | 'BNI'
+  | 'MANDIRI'
+  | 'PERMATA'
+  | 'DANA'
+  | 'OVO'
+  | 'GOPAY'
+  | 'LINKAJA'
+  | 'SHOPEEPAY'
+  | 'OTHER';
+
+export interface PaymentManualAccount {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  type: ManualPaymentAccountType;
+  provider: ManualPaymentAccountProvider;
+  label: string;
+  ownerName?: string;
+  accountNumber: string;
+  instructions?: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Cashier {
@@ -73,6 +116,7 @@ export interface Cashier {
   pinHash: string;
   avatarUrl?: string;
   phone?: string;
+  whatsapp?: string;
   isActive: boolean;
   createdAt: Date;
   /** Permissions (default true untuk void/diskon jika tidak di-set) */
@@ -193,6 +237,9 @@ export interface Transaction {
   notes?: string;
   status: TransactionStatus;
   createdAt: Date;
+  manualPaymentAccountId?: string;
+  manualPaymentProofDataUrl?: string;
+  manualPaymentConfirmedAt?: Date;
 }
 
 export interface TransactionItem {
@@ -303,6 +350,36 @@ export interface TodoItem {
   createdAt: Date;
 }
 
+export interface TaskItem {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  title: string;
+  description?: string;
+  /** Backward compatible; prefer `columnId` */
+  status?: TaskStatus;
+  /** Kanban column reference */
+  columnId: string;
+  priority: TodoPriority;
+  dueDate?: Date;
+  /** JSON string of cashierIds tagged/assigned */
+  assigneeCashierIdsJson: string;
+  createdAt: Date;
+  updatedAt?: Date;
+  createdByOwnerId: string;
+}
+
+export interface TaskColumn {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  title: string;
+  sortOrder: number;
+  kind: TaskColumnKind;
+  createdAt: Date;
+  updatedAt?: Date;
+}
+
 /** Jadwal kasir per hari (tanpa drag–drop di DB; UI menyimpan assignment). */
 export interface ShiftAssignment {
   id?: string;
@@ -383,6 +460,124 @@ export interface BuyerInboxMessage {
   status: 'NEW' | 'REVIEWED' | 'DONE';
 }
 
+export interface PayrollProfile {
+  id?: string;
+  businessId: string;
+  tenantId: string;
+  cashierId: string;
+  baseSalaryMonthly: number;
+  hourlyRate: number;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt?: Date;
+}
+
+export interface PayrollRun {
+  id?: string;
+  businessId: string;
+  tenantId: string;
+  /** YYYY-MM */
+  month: string;
+  generatedAt: Date;
+  generatedBy: 'OWNER';
+}
+
+export interface PayrollLine {
+  id?: string;
+  payrollRunId: string;
+  businessId: string;
+  tenantId: string;
+  cashierId: string;
+  daysWorked: number;
+  totalHours: number;
+  baseSalaryMonthly: number;
+  hourlyRate: number;
+  grossPay: number;
+}
+
+export interface StoreDay {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  /** YYYY-MM-DD (local business day) */
+  dateYmd: string;
+  status: StoreDayStatus;
+  openedAt: Date;
+  openedByOwnerId: string;
+  openingCash: number;
+  closedAt?: Date;
+  closedByOwnerId?: string;
+  actualCash?: number;
+  expectedCash?: number;
+  variance?: number;
+  summaryJson?: string;
+  updatedAt?: Date;
+}
+
+export interface CashierHandover {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  dateYmd: string;
+  fromCashierId: string;
+  toCashierId: string;
+  handoverAt: Date;
+  notes?: string;
+  drawerCashAtHandover?: number;
+}
+
+export interface StockOpnameSession {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  status: StockOpnameApprovalStatus;
+  startedAt: Date;
+  endedAt?: Date;
+  createdByActorType: 'OWNER' | 'CASHIER';
+  createdByActorId: string;
+  notes?: string;
+  storeDayId?: string;
+  submittedAt?: Date;
+  approvedAt?: Date;
+  approvedByOwnerId?: string;
+}
+
+export interface StockOpnameLine {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  sessionId: string;
+  itemType: 'PRODUCT' | 'MATERIAL';
+  itemId: string;
+  systemQty: number;
+  countedQty: number;
+  diffQty: number;
+}
+
+export interface MaterialStockAdjustment {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  materialId: string;
+  qtyDelta: number;
+  reason: StockAdjustmentReason;
+  refId?: string;
+  createdAt: Date;
+  createdByOwnerId: string;
+}
+
+export interface StockAdjustment {
+  id?: string;
+  tenantId: string;
+  businessId: string;
+  productId: string;
+  qtyDelta: number;
+  reason: StockAdjustmentReason;
+  refId?: string;
+  createdAt: Date;
+  createdByOwnerId: string;
+}
+
 // --- DATABASE CLASS ---
 
 class POSDatabase extends Dexie {
@@ -411,6 +606,18 @@ class POSDatabase extends Dexie {
   members!: Table<Member, string>;
   crmLeads!: Table<CrmLead, string>;
   buyerInbox!: Table<BuyerInboxMessage, string>;
+  payrollProfiles!: Table<PayrollProfile, string>;
+  payrollRuns!: Table<PayrollRun, string>;
+  payrollLines!: Table<PayrollLine, string>;
+  storeDays!: Table<StoreDay, string>;
+  cashierHandovers!: Table<CashierHandover, string>;
+  stockOpnameSessions!: Table<StockOpnameSession, string>;
+  stockOpnameLines!: Table<StockOpnameLine, string>;
+  stockAdjustments!: Table<StockAdjustment, string>;
+  materialStockAdjustments!: Table<MaterialStockAdjustment, string>;
+  paymentManualAccounts!: Table<PaymentManualAccount, string>;
+  tasks!: Table<TaskItem, string>;
+  taskColumns!: Table<TaskColumn, string>;
 
   constructor() {
     super('POSDatabase');
@@ -516,6 +723,231 @@ class POSDatabase extends Dexie {
       crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
       buyerInbox: '++id, leadId, status, createdAt',
     });
+
+    this.version(7).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses: '++id, tenantId, isActive',
+      cashiers: '++id, businessId, tenantId, isActive',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+    });
+
+    this.version(8).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses: '++id, tenantId, isActive',
+      cashiers: '++id, businessId, tenantId, isActive',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+      storeDays: '++id, tenantId, businessId, dateYmd, status, openedAt, closedAt, updatedAt',
+      cashierHandovers: '++id, tenantId, businessId, dateYmd, fromCashierId, toCashierId, handoverAt',
+      stockOpnameSessions: '++id, tenantId, businessId, status, startedAt, endedAt, createdByOwnerId',
+      stockOpnameLines: '++id, tenantId, businessId, sessionId, productId',
+      stockAdjustments: '++id, tenantId, businessId, productId, reason, createdAt, refId',
+    });
+
+    this.version(9).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses: '++id, tenantId, isActive',
+      cashiers: '++id, businessId, tenantId, isActive, whatsapp',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+      storeDays: '++id, tenantId, businessId, dateYmd, status, openedAt, closedAt, updatedAt',
+      cashierHandovers: '++id, tenantId, businessId, dateYmd, fromCashierId, toCashierId, handoverAt',
+      stockOpnameSessions: '++id, tenantId, businessId, status, startedAt, endedAt, createdByOwnerId',
+      stockOpnameLines: '++id, tenantId, businessId, sessionId, productId',
+      stockAdjustments: '++id, tenantId, businessId, productId, reason, createdAt, refId',
+      tasks: '++id, tenantId, businessId, status, priority, dueDate, updatedAt, createdAt, createdByOwnerId',
+    });
+
+    this.version(10).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses: '++id, tenantId, isActive',
+      cashiers: '++id, businessId, tenantId, isActive, whatsapp',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+      storeDays: '++id, tenantId, businessId, dateYmd, status, openedAt, closedAt, updatedAt',
+      cashierHandovers: '++id, tenantId, businessId, dateYmd, fromCashierId, toCashierId, handoverAt',
+      stockOpnameSessions: '++id, tenantId, businessId, status, startedAt, endedAt, createdByActorType, createdByActorId, submittedAt, approvedAt, approvedByOwnerId',
+      stockOpnameLines: '++id, tenantId, businessId, sessionId, itemType, itemId',
+      stockAdjustments: '++id, tenantId, businessId, productId, reason, createdAt, refId',
+      materialStockAdjustments: '++id, tenantId, businessId, materialId, reason, createdAt, refId',
+      taskColumns: '++id, tenantId, businessId, sortOrder, kind, updatedAt, createdAt',
+      tasks: '++id, tenantId, businessId, columnId, priority, dueDate, updatedAt, createdAt, createdByOwnerId',
+    });
+
+    this.version(11).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses: '++id, tenantId, isActive, requireStockOpnameAfterClose, stockOpnameAutoApprove',
+      cashiers: '++id, businessId, tenantId, isActive, whatsapp',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+      storeDays: '++id, tenantId, businessId, dateYmd, status, openedAt, closedAt, updatedAt',
+      cashierHandovers: '++id, tenantId, businessId, dateYmd, fromCashierId, toCashierId, handoverAt',
+      stockOpnameSessions: '++id, tenantId, businessId, status, startedAt, endedAt, createdByActorType, createdByActorId, submittedAt, approvedAt, approvedByOwnerId',
+      stockOpnameLines: '++id, tenantId, businessId, sessionId, itemType, itemId',
+      stockAdjustments: '++id, tenantId, businessId, productId, reason, createdAt, refId',
+      materialStockAdjustments: '++id, tenantId, businessId, materialId, reason, createdAt, refId',
+      paymentManualAccounts: '++id, tenantId, businessId, type, provider, isActive, updatedAt, createdAt',
+      taskColumns: '++id, tenantId, businessId, sortOrder, kind, updatedAt, createdAt',
+      tasks: '++id, tenantId, businessId, columnId, priority, dueDate, updatedAt, createdAt, createdByOwnerId',
+    });
+
+    this.version(12).stores({
+      users: '++id, email, role, createdAt',
+      tenants: '++id, ownerId, slug, isActive',
+      businesses:
+        '++id, tenantId, isActive, requireStockOpnameAfterClose, stockOpnameAutoApprove, manualPaymentEnabled, manualPaymentProofRequired',
+      cashiers: '++id, businessId, tenantId, isActive, whatsapp',
+      cashierSessions: '++id, cashierId, businessId, status, clockIn',
+      shifts: '++id, businessId, isActive',
+      categories: '++id, businessId, tenantId, sortOrder',
+      products: '++id, businessId, tenantId, categoryId, sku, barcode, isActive',
+      materials: '++id, businessId, tenantId, isActive',
+      productMaterials: '++id, productId, materialId',
+      transactions: '++id, businessId, tenantId, cashierId, invoiceNumber, status, createdAt, paymentMethod',
+      transactionItems: '++id, transactionId, productId',
+      debtReceivables: '++id, businessId, tenantId, type, status, dueDate',
+      businessCosts: '++id, businessId, tenantId, type, isActive, createdAt',
+      cashflowEntries: '++id, businessId, tenantId, type, category, date, createdAt',
+      debtPayments: '++id, businessId, tenantId, debtReceivableId, paidAt, createdAt',
+      financeAccounts: '++id, businessId, tenantId, category, subCategory, parentId, sortOrder, code, isActive',
+      activityLogs: '++id, tenantId, businessId, actorId, action, createdAt',
+      todoItems: '++id, tenantId, businessId, isCompleted, priority, dueDate',
+      materialRestockHistory: '++id, materialId, businessId, tenantId, createdAt',
+      shiftAssignments: '++id, businessId, shiftId, cashierId, date, tenantId',
+      shiftCloses: '++id, businessId, cashierId, closedAt, tenantId',
+      members: '++id, businessId, tenantId, tier, phone, email, isActive, createdAt',
+      crmLeads: '++id, stage, source, email, phone, createdAt, tenantId, businessId',
+      buyerInbox: '++id, leadId, status, createdAt',
+      payrollProfiles: '++id, businessId, tenantId, cashierId, isActive, updatedAt',
+      payrollRuns: '++id, businessId, tenantId, month, generatedAt',
+      payrollLines: '++id, payrollRunId, businessId, tenantId, cashierId',
+      storeDays: '++id, tenantId, businessId, dateYmd, status, openedAt, closedAt, updatedAt',
+      cashierHandovers: '++id, tenantId, businessId, dateYmd, fromCashierId, toCashierId, handoverAt',
+      stockOpnameSessions:
+        '++id, tenantId, businessId, status, startedAt, endedAt, createdByActorType, createdByActorId, submittedAt, approvedAt, approvedByOwnerId',
+      stockOpnameLines: '++id, tenantId, businessId, sessionId, itemType, itemId',
+      stockAdjustments: '++id, tenantId, businessId, productId, reason, createdAt, refId',
+      materialStockAdjustments: '++id, tenantId, businessId, materialId, reason, createdAt, refId',
+      paymentManualAccounts: '++id, tenantId, businessId, type, provider, isActive, updatedAt, createdAt',
+      taskColumns: '++id, tenantId, businessId, sortOrder, kind, updatedAt, createdAt',
+      tasks: '++id, tenantId, businessId, columnId, priority, dueDate, updatedAt, createdAt, createdByOwnerId',
+    });
   }
 }
 
@@ -523,17 +955,25 @@ export const db = new POSDatabase();
 
 // --- SEED DATA ---
 
-export async function seedInitialData() {
-  const userCount = await db.users.count();
-  const hasBaseData = userCount > 0;
+export const DEMO_OWNER_EMAIL = 'owner@example.com';
 
-  // We can seed finance-related tables even if the demo base data already exists.
-  const firstBusiness = hasBaseData ? await db.businesses.toArray() : [];
-  const businessId = !hasBaseData ? crypto.randomUUID() : firstBusiness[0]?.id!;
-  const tenantId = !hasBaseData ? crypto.randomUUID() : firstBusiness[0]?.tenantId!;
-  
-  // Super admin (landing CMS) — single account, idempotent + migrate legacy "hanif"
-  const superAdminEmail = 'hanif.rullyant@gmail.com';
+const SUPER_ADMIN_EMAIL = 'hanif.rullyant@gmail.com';
+
+const DEMO_PRODUCT_IMAGE_MAP: Record<string, string> = {
+  'KOPI-001': 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=512&h=512&fit=crop&q=80',
+  'KOPI-002': 'https://images.unsplash.com/photo-1517701550927-30cf4ba1e5a6?w=512&h=512&fit=crop&q=80',
+  'KOPI-003': 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=512&h=512&fit=crop&q=80',
+  'KOPI-004': 'https://images.unsplash.com/photo-1510591508098-4c6db859d7b4?w=512&h=512&fit=crop&q=80',
+  'KOPI-005': 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=512&h=512&fit=crop&q=80',
+  'FOOD-001': 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=512&h=512&fit=crop&q=80',
+  'FOOD-002': 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=512&h=512&fit=crop&q=80',
+  'FOOD-003': 'https://images.unsplash.com/photo-1525351484163-94131fb13f1a?w=512&h=512&fit=crop&q=80',
+  'SNACK-001': 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=512&h=512&fit=crop&q=80',
+  'SNACK-002': 'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=512&h=512&fit=crop&q=80',
+};
+
+export async function ensureSuperAdminAccount() {
+  const superAdminEmail = SUPER_ADMIN_EMAIL;
   const legacyHanif = await db.users.where('email').equals('hanif').first();
   const adminByEmail = await db.users.where('email').equals(superAdminEmail).first();
   if (legacyHanif?.id) {
@@ -564,45 +1004,174 @@ export async function seedInitialData() {
       role: 'ADMIN_SYSTEM',
     });
   }
-  if (hasBaseData && (!businessId || !tenantId)) return;
+}
 
-  // Ensure dummy products always have images (even for existing demo DB).
-  if (hasBaseData && businessId) {
-    const skuToImageUrl: Record<string, string> = {
-      'KOPI-001': 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=512&h=512&fit=crop&q=80',
-      'KOPI-002': 'https://images.unsplash.com/photo-1517701550927-30cf4ba1e5a6?w=512&h=512&fit=crop&q=80',
-      'KOPI-003': 'https://images.unsplash.com/photo-1572442388796-11668a67e53d?w=512&h=512&fit=crop&q=80',
-      'KOPI-004': 'https://images.unsplash.com/photo-1510591508098-4c6db859d7b4?w=512&h=512&fit=crop&q=80',
-      'KOPI-005': 'https://images.unsplash.com/photo-1461023058943-07fcbe16d735?w=512&h=512&fit=crop&q=80',
-      'FOOD-001': 'https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=512&h=512&fit=crop&q=80',
-      'FOOD-002': 'https://images.unsplash.com/photo-1582878826629-29b7ad1cdc43?w=512&h=512&fit=crop&q=80',
-      'FOOD-003': 'https://images.unsplash.com/photo-1525351484163-94131fb13f1a?w=512&h=512&fit=crop&q=80',
-      'SNACK-001': 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=512&h=512&fit=crop&q=80',
-      'SNACK-002': 'https://images.unsplash.com/photo-1606491956689-2ea866880c84?w=512&h=512&fit=crop&q=80',
-    };
-    const existingProducts = await db.products.where('businessId').equals(businessId).toArray();
-    for (const p of existingProducts) {
-      if (p.imageUrl) continue;
-      if (!p.sku) continue;
-      const url = skuToImageUrl[p.sku];
-      if (!url) continue;
-      await db.products.update(p.id!, { imageUrl: url });
-    }
+/** Tenant + bisnis kosong agar super admin bisa masuk dashboard tanpa data demo. */
+export async function ensureSuperAdminShellWorkspace() {
+  const admin = await db.users.where('email').equals(SUPER_ADMIN_EMAIL).first();
+  if (!admin?.id) return;
+  const existing = await db.tenants.where('ownerId').equals(admin.id).first();
+  if (existing) return;
+
+  const tenantId = crypto.randomUUID();
+  const businessId = crypto.randomUUID();
+  await db.tenants.add({
+    id: tenantId,
+    ownerId: admin.id,
+    name: 'Administrasi Platform',
+    slug: 'platform-admin',
+    subscriptionPlan: 'ENTERPRISE',
+    isActive: true,
+    createdAt: new Date(),
+  });
+  await db.businesses.add({
+    id: businessId,
+    tenantId,
+    name: 'Kantor Pusat',
+    taxPercentage: 0,
+    serviceChargePercentage: 0,
+    isActive: true,
+    createdAt: new Date(),
+  });
+  await seedFinanceAccountsForBusiness(businessId, tenantId);
+}
+
+export async function seedFinanceAccountsForBusiness(businessId: string, tenantId: string) {
+  const accountsCount = await db.financeAccounts.where('businessId').equals(businessId).count();
+  if (accountsCount > 0) return;
+
+  const now = new Date();
+  const mk = (acc: Omit<FinanceAccount, 'id' | 'createdAt'> & { id?: string; createdAt?: Date }): FinanceAccount => ({
+    id: acc.id ?? crypto.randomUUID(),
+    businessId,
+    tenantId,
+    code: acc.code,
+    name: acc.name,
+    category: acc.category,
+    subCategory: acc.subCategory,
+    parentId: acc.parentId ?? null,
+    sortOrder: acc.sortOrder,
+    balance: acc.balance,
+    isActive: acc.isActive,
+    isSystem: acc.isSystem,
+    createdAt: acc.createdAt ?? now,
+  });
+
+  const rootAsset = crypto.randomUUID();
+  const rootLiability = crypto.randomUUID();
+  const rootEquity = crypto.randomUUID();
+  const rootIncome = crypto.randomUUID();
+  const rootExpense = crypto.randomUUID();
+
+  const seedAccounts: FinanceAccount[] = [
+    mk({ id: rootAsset, code: 'ROOT-ASSET', name: 'Aset', category: 'asset', sortOrder: 1, balance: 0, isActive: true, isSystem: true, parentId: null }),
+    mk({ id: rootLiability, code: 'ROOT-LIAB', name: 'Liabilitas', category: 'liability', sortOrder: 2, balance: 0, isActive: true, isSystem: true, parentId: null }),
+    mk({ id: rootEquity, code: 'ROOT-EQUITY', name: 'Ekuitas', category: 'equity', sortOrder: 3, balance: 0, isActive: true, isSystem: true, parentId: null }),
+    mk({ id: rootIncome, code: 'ROOT-INCOME', name: 'Pendapatan', category: 'income', sortOrder: 4, balance: 0, isActive: true, isSystem: true, parentId: null }),
+    mk({ id: rootExpense, code: 'ROOT-EXPENSE', name: 'Beban', category: 'expense', sortOrder: 5, balance: 0, isActive: true, isSystem: true, parentId: null }),
+
+    mk({ code: '1-1000', name: 'Kas', category: 'asset', subCategory: 'cash', parentId: rootAsset, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '1-1100', name: 'Piutang Usaha', category: 'asset', subCategory: 'receivables', parentId: rootAsset, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
+
+    mk({ code: '2-2000', name: 'Hutang Usaha', category: 'liability', subCategory: 'payables', parentId: rootLiability, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
+
+    mk({ code: '3-3000', name: 'Modal Owner', category: 'equity', subCategory: 'capital', parentId: rootEquity, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '3-3002', name: 'Laba Ditahan', category: 'equity', subCategory: 'retained_earnings', parentId: rootEquity, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '3-3003', name: 'Laba Berjalan', category: 'equity', subCategory: 'current_earnings', parentId: rootEquity, sortOrder: 30, balance: 0, isActive: true, isSystem: true }),
+
+    mk({ code: '4-4000', name: 'Pendapatan Penjualan', category: 'income', subCategory: 'sales', parentId: rootIncome, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
+
+    mk({ code: '5-5001', name: 'Beban Gaji', category: 'expense', subCategory: 'salary', parentId: rootExpense, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '5-5002', name: 'Beban Sewa', category: 'expense', subCategory: 'rent', parentId: rootExpense, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '5-5003', name: 'Beban Utilitas', category: 'expense', subCategory: 'utilities', parentId: rootExpense, sortOrder: 30, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '5-5004', name: 'Beban Marketing', category: 'expense', subCategory: 'marketing', parentId: rootExpense, sortOrder: 40, balance: 0, isActive: true, isSystem: true }),
+    mk({ code: '5-5005', name: 'Beban Lain-lain', category: 'expense', subCategory: 'other', parentId: rootExpense, sortOrder: 50, balance: 0, isActive: true, isSystem: true }),
+  ];
+
+  await db.financeAccounts.bulkAdd(seedAccounts);
+}
+
+async function seedDemoBusinessCostsForBusiness(businessId: string, tenantId: string) {
+  const hasBusinessCosts = await db.businessCosts.where('businessId').equals(businessId).count();
+  if (hasBusinessCosts > 0) return;
+
+  const now = new Date();
+  const mkDate = (monthsAgo: number) => {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - monthsAgo);
+    d.setDate(5);
+    d.setHours(10, 0, 0, 0);
+    return d;
+  };
+
+  const costs: Omit<BusinessCost, 'id'>[] = [
+    { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
+    { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
+    { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
+    { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
+
+    { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
+    { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
+    { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
+    { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
+
+    { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
+    { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
+    { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
+    { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
+
+    { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
+    { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
+    { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
+    { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
+
+    { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
+    { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
+    { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
+    { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
+  ];
+
+  await db.businessCosts.bulkAdd(costs as BusinessCost[]);
+}
+
+export async function backfillDemoProductImages(businessId: string) {
+  const existingProducts = await db.products.where('businessId').equals(businessId).toArray();
+  for (const p of existingProducts) {
+    if (p.imageUrl) continue;
+    if (!p.sku) continue;
+    const url = DEMO_PRODUCT_IMAGE_MAP[p.sku];
+    if (!url) continue;
+    await db.products.update(p.id!, { imageUrl: url });
+  }
+}
+
+/**
+ * Data demo kedai (produk, transaksi sample, dll.). Hanya dipanggil dari tombol demo / reset demo.
+ */
+export async function seedDemoWorkspace() {
+  await ensureSuperAdminAccount();
+  await ensureSuperAdminShellWorkspace();
+
+  const demoOwner = await db.users.where('email').equals(DEMO_OWNER_EMAIL).first();
+  if (demoOwner?.id) {
+    const tenant = await db.tenants.where('ownerId').equals(demoOwner.id).first();
+    const biz = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).first() : undefined;
+    if (biz?.id) await backfillDemoProductImages(biz.id);
+
+    await db.users.where('email').equals(DEMO_OWNER_EMAIL).modify({ passwordHash: 'password' });
+    return;
   }
 
-  const userId = !hasBaseData ? crypto.randomUUID() : '';
-  const cashierId = !hasBaseData ? crypto.randomUUID() : '';
-
-  // -------------------------------
-  // Base demo data (only first time)
-  // -------------------------------
-  if (!hasBaseData) {
+  const userId = crypto.randomUUID();
+  const cashierId = crypto.randomUUID();
+  const tenantId = crypto.randomUUID();
+  const businessId = crypto.randomUUID();
 
     await db.users.add({
       id: userId,
       name: 'Ahmad Pemilik',
-      email: 'owner@example.com',
-      passwordHash: 'hashed_password',
+      email: DEMO_OWNER_EMAIL,
+      passwordHash: 'password',
       role: 'OWNER',
       phone: '08123456789',
       createdAt: new Date()
@@ -889,112 +1458,65 @@ export async function seedInitialData() {
       { id: crypto.randomUUID(), tenantId, businessId, actorType: 'CASHIER', actorId: cashierId, action: 'VOID_TRANSACTION', entityType: 'TRANSACTION', description: 'Void transaksi INV-20240115-0008', createdAt: new Date(Date.now() - 15 * 60 * 1000) },
       { id: crypto.randomUUID(), tenantId, businessId, actorType: 'CASHIER', actorId: cashierId, action: 'CREATE_TRANSACTION', entityType: 'TRANSACTION', description: 'Transaksi baru INV-20240115-0015', createdAt: new Date() }
     ]);
+
+  await seedFinanceAccountsForBusiness(businessId, tenantId);
+  await seedDemoBusinessCostsForBusiness(businessId, tenantId);
+}
+
+export async function seedInitialData() {
+  await ensureSuperAdminAccount();
+  await ensureSuperAdminShellWorkspace();
+  const businesses = await db.businesses.toArray();
+  for (const b of businesses) {
+    if (!b.id) continue;
+    await seedFinanceAccountsForBusiness(b.id, b.tenantId);
   }
+}
 
-  // ------------------------------------------
-  // Finance seed (always seed if empty)
-  // ------------------------------------------
-  const hasBusinessCosts = await db.businessCosts
-    .where('businessId')
-    .equals(businessId)
-    .count();
+export async function provisionEmptyOwnerFromCheckout(opts: {
+  email: string;
+  buyerName: string;
+  tempPassword: string;
+  businessName?: string;
+}) {
+  await ensureSuperAdminAccount();
+  await ensureSuperAdminShellWorkspace();
+  const emailNorm = opts.email.trim().toLowerCase();
+  if (await db.users.where('email').equals(emailNorm).first()) return;
 
-  if (hasBusinessCosts === 0) {
-    const now = new Date();
-    const mkDate = (monthsAgo: number) => {
-      const d = new Date(now);
-      d.setMonth(d.getMonth() - monthsAgo);
-      d.setDate(5);
-      d.setHours(10, 0, 0, 0);
-      return d;
-    };
+  const userId = crypto.randomUUID();
+  const tenantId = crypto.randomUUID();
+  const businessId = crypto.randomUUID();
+  const ownerName = opts.buyerName.trim() || 'Pemilik';
+  const bizName = opts.businessName?.trim() || ownerName;
 
-    const costs: Omit<BusinessCost, 'id'>[] = [
-      { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
-      { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
-      { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
-      { businessId, tenantId, type: 'SALARY', name: 'Gaji', amount: 5000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
-
-      { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
-      { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
-      { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
-      { businessId, tenantId, type: 'OPERATIONAL', name: 'Sewa', amount: 2000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
-
-      { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
-      { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
-      { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
-      { businessId, tenantId, type: 'PRODUCTION', name: 'Utilitas', amount: 1000000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
-
-      { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
-      { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
-      { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
-      { businessId, tenantId, type: 'MARKETING', name: 'Marketing', amount: 800000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
-
-      { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(3) },
-      { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(2) },
-      { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(1) },
-      { businessId, tenantId, type: 'OTHER', name: 'Lain-lain', amount: 500000, frequency: 'MONTHLY', isActive: true, createdAt: mkDate(0) },
-    ];
-
-    await db.businessCosts.bulkAdd(costs as BusinessCost[]);
-  }
-
-  const accountsCount = await db.financeAccounts
-    .where('businessId')
-    .equals(businessId)
-    .count();
-
-  if (accountsCount === 0) {
-    const now = new Date();
-    const mk = (acc: Omit<FinanceAccount, 'id' | 'createdAt'> & { id?: string; createdAt?: Date }): FinanceAccount => ({
-      id: acc.id ?? crypto.randomUUID(),
-      businessId,
-      tenantId,
-      code: acc.code,
-      name: acc.name,
-      category: acc.category,
-      subCategory: acc.subCategory,
-      parentId: acc.parentId ?? null,
-      sortOrder: acc.sortOrder,
-      balance: acc.balance,
-      isActive: acc.isActive,
-      isSystem: acc.isSystem,
-      createdAt: acc.createdAt ?? now
-    });
-
-    const rootAsset = crypto.randomUUID();
-    const rootLiability = crypto.randomUUID();
-    const rootEquity = crypto.randomUUID();
-    const rootIncome = crypto.randomUUID();
-    const rootExpense = crypto.randomUUID();
-
-    const seedAccounts: FinanceAccount[] = [
-      mk({ id: rootAsset, code: 'ROOT-ASSET', name: 'Aset', category: 'asset', sortOrder: 1, balance: 0, isActive: true, isSystem: true, parentId: null }),
-      mk({ id: rootLiability, code: 'ROOT-LIAB', name: 'Liabilitas', category: 'liability', sortOrder: 2, balance: 0, isActive: true, isSystem: true, parentId: null }),
-      mk({ id: rootEquity, code: 'ROOT-EQUITY', name: 'Ekuitas', category: 'equity', sortOrder: 3, balance: 0, isActive: true, isSystem: true, parentId: null }),
-      mk({ id: rootIncome, code: 'ROOT-INCOME', name: 'Pendapatan', category: 'income', sortOrder: 4, balance: 0, isActive: true, isSystem: true, parentId: null }),
-      mk({ id: rootExpense, code: 'ROOT-EXPENSE', name: 'Beban', category: 'expense', sortOrder: 5, balance: 0, isActive: true, isSystem: true, parentId: null }),
-
-      mk({ code: '1-1000', name: 'Kas', category: 'asset', subCategory: 'cash', parentId: rootAsset, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '1-1100', name: 'Piutang Usaha', category: 'asset', subCategory: 'receivables', parentId: rootAsset, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
-
-      mk({ code: '2-2000', name: 'Hutang Usaha', category: 'liability', subCategory: 'payables', parentId: rootLiability, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
-
-      mk({ code: '3-3000', name: 'Modal Owner', category: 'equity', subCategory: 'capital', parentId: rootEquity, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '3-3002', name: 'Laba Ditahan', category: 'equity', subCategory: 'retained_earnings', parentId: rootEquity, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '3-3003', name: 'Laba Berjalan', category: 'equity', subCategory: 'current_earnings', parentId: rootEquity, sortOrder: 30, balance: 0, isActive: true, isSystem: true }),
-
-      mk({ code: '4-4000', name: 'Pendapatan Penjualan', category: 'income', subCategory: 'sales', parentId: rootIncome, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
-
-      mk({ code: '5-5001', name: 'Beban Gaji', category: 'expense', subCategory: 'salary', parentId: rootExpense, sortOrder: 10, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '5-5002', name: 'Beban Sewa', category: 'expense', subCategory: 'rent', parentId: rootExpense, sortOrder: 20, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '5-5003', name: 'Beban Utilitas', category: 'expense', subCategory: 'utilities', parentId: rootExpense, sortOrder: 30, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '5-5004', name: 'Beban Marketing', category: 'expense', subCategory: 'marketing', parentId: rootExpense, sortOrder: 40, balance: 0, isActive: true, isSystem: true }),
-      mk({ code: '5-5005', name: 'Beban Lain-lain', category: 'expense', subCategory: 'other', parentId: rootExpense, sortOrder: 50, balance: 0, isActive: true, isSystem: true }),
-    ];
-
-    await db.financeAccounts.bulkAdd(seedAccounts);
-  }
+  await db.users.add({
+    id: userId,
+    name: ownerName,
+    email: emailNorm,
+    passwordHash: opts.tempPassword,
+    role: 'OWNER',
+    createdAt: new Date(),
+  });
+  await db.tenants.add({
+    id: tenantId,
+    ownerId: userId,
+    name: `${bizName}`,
+    slug: `t-${tenantId.slice(0, 8)}`,
+    subscriptionPlan: 'PRO',
+    isActive: true,
+    createdAt: new Date(),
+  });
+  await db.businesses.add({
+    id: businessId,
+    tenantId,
+    name: bizName,
+    taxPercentage: 0,
+    serviceChargePercentage: 0,
+    isActive: true,
+    createdAt: new Date(),
+  });
+  await seedFinanceAccountsForBusiness(businessId, tenantId);
 }
 
 /**
@@ -1005,4 +1527,5 @@ export async function resetDemoData() {
   await db.delete();
   await db.open();
   await seedInitialData();
+  await seedDemoWorkspace();
 }

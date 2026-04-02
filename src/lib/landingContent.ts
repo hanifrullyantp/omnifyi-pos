@@ -160,7 +160,10 @@ export async function saveLandingContent(payload: LandingContent): Promise<void>
     },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('failed to save content');
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Simpan gagal HTTP ${res.status}${body ? `: ${body.slice(0, 240)}` : ''}`);
+  }
 }
 
 export async function uploadAsset(file: File): Promise<string> {
@@ -177,7 +180,10 @@ export async function uploadAsset(file: File): Promise<string> {
     body: fd,
   });
   if (!res.ok) throw new Error('failed to upload asset');
-  const json = (await res.json()) as { publicUrl: string };
-  return json.publicUrl;
+  const json = (await res.json()) as { publicUrl?: string; signedUrl?: string | null; expiresAt?: string | null };
+  // Prefer public URL (best for landing). If bucket is private, use signed URL (still no-auth, but expiring).
+  const url = (json.publicUrl && json.publicUrl.trim()) || (json.signedUrl && json.signedUrl.trim());
+  if (!url) throw new Error('upload succeeded but no url returned');
+  return url;
 }
 

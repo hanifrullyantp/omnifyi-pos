@@ -8,11 +8,14 @@ import { cn, formatCurrency } from '../lib/utils';
 import { ACTIVITY_ACTION_FILTERS, formatActivityAction } from '../lib/activityLog';
 import { PAYMENT_METHOD_LABELS } from '../lib/utils';
 import { exportAttendanceExcel, sessionsToAttendanceRows } from '../lib/attendanceExport';
+import { logActivity } from '../lib/activityLog';
 
-export default function HistoryPage() {
+type HistoryTab = 'activity' | 'absensi';
+
+export default function HistoryPage({ initialTab }: { initialTab?: HistoryTab } = {}) {
   const { currentBusiness, currentUser } = useAuthStore();
   const bid = currentBusiness?.id;
-  const [tab, setTab] = useState<'activity' | 'absensi'>('activity');
+  const [tab, setTab] = useState<HistoryTab>(initialTab ?? 'activity');
   const [search, setSearch] = useState('');
   const [actionFilter, setActionFilter] = useState<string>('ALL');
   const [cashierFilter, setCashierFilter] = useState<string>('ALL');
@@ -24,6 +27,8 @@ export default function HistoryPage() {
   const [dateEnd, setDateEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [absMonth, setAbsMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [calCashierId, setCalCashierId] = useState<string>('ALL');
+  const [absActionMsg, setAbsActionMsg] = useState<string>('');
+  const [absActionBusy, setAbsActionBusy] = useState(false);
 
   const cashiers = useLiveQuery(
     () => (bid ? db.cashiers.where('businessId').equals(bid).toArray() : []),
@@ -134,6 +139,99 @@ export default function HistoryPage() {
       rows,
       monthlySummary,
     });
+  };
+
+  const canManageAttendance = useMemo(() => currentUser?.role === 'OWNER', [currentUser?.role]);
+
+  const doClockIn = async () => {
+    if (!bid || !currentBusiness) return;
+    if (!canManageAttendance) return;
+    if (calCashierId === 'ALL') {
+      setAbsActionMsg('Pilih kasir terlebih dulu untuk clock-in.');
+      return;
+    }
+    setAbsActionBusy(true);
+    setAbsActionMsg('');
+    try {
+      const active = await db.cashierSessions
+        .where('businessId')
+        .equals(bid)
+        .filter((s) => s.cashierId === calCashierId && s.status === 'ACTIVE')
+        .first();
+      if (active?.id) {
+        setAbsActionMsg('Kasir ini masih ACTIVE. Lakukan clock-out dulu.');
+        return;
+      }
+
+      const sessionId = crypto.randomUUID();
+      const now = new Date();
+      await db.cashierSessions.add({
+        id: sessionId,
+        cashierId: calCashierId,
+        businessId: bid,
+        clockIn: now,
+        pinVerifiedAt: now,
+        status: 'ACTIVE',
+        deviceInfo: 'manual-attendance',
+      });
+      await logActivity({
+        tenantId: currentBusiness.tenantId,
+        businessId: bid,
+        actorType: 'OWNER',
+        actorId: currentUser?.id ?? 'OWNER',
+        action: 'CLOCK_IN',
+        entityType: 'SESSION',
+        entityId: sessionId,
+        description: `Clock-in manual untuk ${cashierName(calCashierId, 'CASHIER')}`,
+        metadata: { cashierId: calCashierId, source: 'manual-attendance' },
+      });
+      setAbsActionMsg('Clock-in tersimpan.');
+    } catch (e) {
+      setAbsActionMsg(e instanceof Error ? e.message : 'Gagal clock-in.');
+    } finally {
+      setAbsActionBusy(false);
+    }
+  };
+
+  const doClockOut = async () => {
+    if (!bid || !currentBusiness) return;
+    if (!canManageAttendance) return;
+    if (calCashierId === 'ALL') {
+      setAbsActionMsg('Pilih kasir terlebih dulu untuk clock-out.');
+      return;
+    }
+    setAbsActionBusy(true);
+    setAbsActionMsg('');
+    try {
+      const active = await db.cashierSessions
+        .where('businessId')
+        .equals(bid)
+        .filter((s) => s.cashierId === calCashierId && s.status === 'ACTIVE')
+        .first();
+      if (!active?.id) {
+        setAbsActionMsg('Tidak ada sesi ACTIVE untuk kasir ini.');
+        return;
+      }
+
+      const now = new Date();
+      await db.cashierSessions.update(active.id, { clockOut: now, status: 'CLOSED' });
+      await logActivity({
+        tenantId: currentBusiness.tenantId,
+        businessId: bid,
+        actorType: 'OWNER',
+        actorId: currentUser?.id ?? 'OWNER',
+        action: 'CLOCK_OUT',
+        entityType: 'SESSION',
+        entityId: active.id,
+        description: `Clock-out manual untuk ${cashierName(calCashierId, 'CASHIER')}`,
+        metadata: { cashierId: calCashierId, source: 'manual-attendance' },
+      });
+      setAbsActionMsg('Clock-out tersimpan.');
+    } catch (e) {
+      setAbsActionMsg(e instanceof Error ? e.message : 'Gagal clock-out.');
+    } finally {
+      setAbsActionBusy(false);
+    }
   };
 
   if (!bid) {
@@ -334,6 +432,36 @@ export default function HistoryPage() {
                   ))}
                 </select>
               </div>
+              {canManageAttendance && (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={absActionBusy}
+                    onClick={doClockIn}
+                    className={cn(
+                      'px-4 py-2 rounded-xl text-sm font-semibold border',
+                      absActionBusy
+                        ? 'bg-gray-100 text-gray-400 border-gray-200'
+                        : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-900'
+                    )}
+                  >
+                    Clock-in
+                  </button>
+                  <button
+                    type="button"
+                    disabled={absActionBusy}
+                    onClick={doClockOut}
+                    className={cn(
+                      'px-4 py-2 rounded-xl text-sm font-semibold border',
+                      absActionBusy
+                        ? 'bg-gray-100 text-gray-400 border-gray-200'
+                        : 'bg-white hover:bg-gray-50 border-gray-200 text-gray-900'
+                    )}
+                  >
+                    Clock-out
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={exportAbsensi}
@@ -342,6 +470,9 @@ export default function HistoryPage() {
                 Export Excel
               </button>
             </div>
+            {absActionMsg && (
+              <div className="text-sm text-gray-600 dark:text-gray-300 -mt-2">{absActionMsg}</div>
+            )}
 
             <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
               <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-3">

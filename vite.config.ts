@@ -9,8 +9,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [react(), tailwindcss(), viteSingleFile()],
+export default defineConfig(({ command }) => ({
+  // vite-plugin-singlefile is meant for production builds; in dev it can confuse import analysis.
+  // Disable fast refresh to avoid html-proxy mismatch under `vercel dev`.
+  plugins: [react({ fastRefresh: false }), tailwindcss(), command === "build" ? viteSingleFile() : undefined].filter(Boolean),
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
@@ -30,4 +32,4 @@ export default defineConfig({
     host: "localhost",
     open: true,
   },
-});
+}));

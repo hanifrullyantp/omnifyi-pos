@@ -9,10 +9,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npx vercel",
-    "deploy:prod": "npx vercel --prod"
+    "deploy:prod": "npx vercel --prod",
+    "supabase:deploy:cms": "supabase functions deploy cms-landing --no-verify-jwt"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
+    "@supabase/supabase-js": "^2.101.0",
     "@types/canvas-confetti": "^1.9.0",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
@@ -42,7 +44,9 @@
     "@types/node": "^22.0.0",
     "@types/react": "19.2.7",
     "@types/react-dom": "19.2.3",
+    "@vercel/node": "^5.6.22",
     "@vitejs/plugin-react": "5.1.1",
+    "supabase": "^2.84.5",
     "tailwindcss": "4.1.17",
     "typescript": "5.9.3",
     "vite": "7.2.4",

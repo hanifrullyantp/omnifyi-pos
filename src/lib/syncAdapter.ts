@@ -1,9 +1,11 @@
 import { db, type Product, type Transaction, type TransactionItem } from './db';
+import { supabase } from './supabaseClient';
 
 export type SyncQueueItem = {
   id: string;
-  type: 'transaction' | 'product' | 'stock';
-  data: Transaction | Product | Record<string, unknown>;
+  table: string;
+  op: 'upsert' | 'delete';
+  row: Record<string, unknown>;
   createdAt: Date;
   retryCount: number;
 };
@@ -34,7 +36,7 @@ function backoffMs(retryCount: number) {
 
 async function applyServerWinsConflict(item: SyncQueueItem, serverData?: Record<string, unknown>) {
   if (!serverData) return;
-  if (item.type === 'transaction') {
+  if (item.table === 'transactions') {
     const tx = (serverData.transaction ?? serverData.tx) as Transaction | undefined;
     const items = (serverData.items ?? serverData.transactionItems) as TransactionItem[] | undefined;
     if (tx?.id) await db.transactions.put(tx);
@@ -42,7 +44,7 @@ async function applyServerWinsConflict(item: SyncQueueItem, serverData?: Record<
     return;
   }
 
-  if (item.type === 'product' || item.type === 'stock') {
+  if (item.table === 'products') {
     const product = (serverData.product ?? serverData.item) as Product | undefined;
     if (product?.id) await db.products.put(product);
   }
@@ -58,21 +60,45 @@ export async function syncPendingBatch(items: SyncQueueItem[]) {
     strategy: 'server_wins',
     items: items.map((it) => ({
       id: it.id,
-      type: it.type,
-      data: it.data,
+      table: it.table,
+      op: it.op,
+      row: it.row,
       createdAt: new Date(it.createdAt).toISOString(),
       retryCount: it.retryCount,
     })),
   };
 
   try {
-    const res = await fetch(endpointUrl(), {
+    const { data: sessionData } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+    const token = sessionData.session?.access_token;
+    const url = endpointUrl();
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
+      // Local dev note: Vite dev server won't serve Vercel functions by default.
+      // If the app is using the default endpoint, treat 404 as "endpoint missing"
+      // and back off longer to avoid noisy console + repeated requests.
+      if (
+        res.status === 404 &&
+        url === DEFAULT_SYNC_ENDPOINT &&
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      ) {
+        return {
+          succeeded: [] as string[],
+          retry: items.map((i) => i.id),
+          errorCode: 'endpoint_missing' as const,
+          retryAfterMs: 5 * 60_000,
+          message: 'Sync endpoint tidak tersedia di localhost (gunakan vercel dev atau set VITE_SYNC_ENDPOINT).',
+        };
+      }
       throw new Error(`SYNC_HTTP_${res.status}`);
     }
 

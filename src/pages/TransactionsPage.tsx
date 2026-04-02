@@ -46,14 +46,23 @@ function formatTxDate(d: Date) {
   return new Date(d).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+function maskAccountNumber(s: string) {
+  const raw = (s || '').trim();
+  if (raw.length <= 4) return raw;
+  const tail = raw.slice(-4);
+  return `••••${tail}`;
+}
+
 function TransactionDetailModal({
   txId,
   open,
   onClose,
+  manualAccountLabelById,
 }: {
   txId: string | null;
   open: boolean;
   onClose: () => void;
+  manualAccountLabelById: Map<string, string>;
 }) {
   const items = useLiveQuery(
     () => {
@@ -69,6 +78,14 @@ function TransactionDetailModal({
       return db.transactions.get(txId as any);
     },
     [open, txId]
+  );
+
+  const manualAccount = useLiveQuery(
+    () => {
+      if (!open || !tx?.manualPaymentAccountId) return null;
+      return db.paymentManualAccounts.get(tx.manualPaymentAccountId as any);
+    },
+    [open, tx?.manualPaymentAccountId],
   );
 
   if (!open) return null;
@@ -117,6 +134,13 @@ function TransactionDetailModal({
                   <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
                     {PAYMENT_METHOD_LABELS[tx.paymentMethod] ?? tx.paymentMethod}
                   </p>
+                  {tx.manualPaymentAccountId ? (
+                    <p className="mt-1 text-xs text-gray-500">
+                      Akun:{' '}
+                      {manualAccountLabelById.get(tx.manualPaymentAccountId) ?? tx.manualPaymentAccountId}
+                      {manualAccount?.accountNumber ? ` • ${maskAccountNumber(manualAccount.accountNumber)}` : ''}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -224,6 +248,11 @@ export default function TransactionsPage() {
     [bid]
   );
 
+  const manualAccounts = useLiveQuery(
+    () => (bid ? db.paymentManualAccounts.where('businessId').equals(bid).toArray() : []),
+    [bid],
+  );
+
   const cashierMap = useMemo(() => {
     const m = new Map<string, string>();
     (cashiers ?? []).forEach((c: Cashier) => {
@@ -232,6 +261,14 @@ export default function TransactionsPage() {
     if (currentUser?.id) m.set(currentUser.id, `${currentUser.name} (Owner)`);
     return m;
   }, [cashiers, currentUser]);
+
+  const manualAccountLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    (manualAccounts ?? []).forEach((a) => {
+      if (a.id) m.set(a.id, a.label);
+    });
+    return m;
+  }, [manualAccounts]);
 
   const filtered = useMemo(() => {
     const start = new Date(dateStart);
@@ -517,7 +554,10 @@ export default function TransactionsPage() {
                           {tx.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">{PAYMENT_METHOD_LABELS[tx.paymentMethod] ?? tx.paymentMethod}</td>
+                      <td className="px-3 py-2 text-gray-600 dark:text-gray-300">
+                        {PAYMENT_METHOD_LABELS[tx.paymentMethod] ?? tx.paymentMethod}
+                        {tx.manualPaymentAccountId ? ` • ${manualAccountLabelById.get(tx.manualPaymentAccountId) ?? 'Akun manual'}` : ''}
+                      </td>
                       <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                         {formatCurrency(tx.total)}
                       </td>
@@ -544,6 +584,7 @@ export default function TransactionsPage() {
           setDetailOpen(false);
           setSelectedTxId(null);
         }}
+        manualAccountLabelById={manualAccountLabelById}
       />
     </>
   );

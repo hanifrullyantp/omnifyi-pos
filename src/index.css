@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Align with OMNIFYI dashboard — teal brand scale */
 @theme {
@@ -18,9 +19,40 @@
   * {
     -webkit-tap-highlight-color: transparent;
   }
+  :root,
+  :root[data-theme='dark'] {
+    --app-bg: #0d1117;
+    --app-surface: #161b22;
+    --app-surface-2: #1c2333;
+    --app-border: #30363d;
+    --app-text: #f0f6fc;
+    --app-muted: #8b949e;
+    --app-muted-2: #484f58;
+    --app-accent-green: #10b981;
+    --app-accent-blue: #58a6ff;
+    --app-accent-red: #ef4444;
+    --app-accent-yellow: #f59e0b;
+    --app-accent-purple: #a371f7;
+  }
+  :root[data-theme='light'] {
+    --app-bg: #f6f8fa;
+    --app-surface: #ffffff;
+    --app-surface-2: #f6f8fa;
+    --app-border: #d0d7de;
+    --app-text: #1f2328;
+    --app-muted: #656d76;
+    --app-muted-2: #8c959f;
+    --app-accent-green: #10b981;
+    --app-accent-blue: #58a6ff;
+    --app-accent-red: #ef4444;
+    --app-accent-yellow: #f59e0b;
+    --app-accent-purple: #a371f7;
+  }
   html, body, #root {
     max-width: 100%;
     overflow-x: hidden;
+    background-color: var(--app-bg);
+    color: var(--app-text);
   }
 }
 
@@ -67,4 +99,36 @@
 .card-hover:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 24px -8px rgba(13, 148, 136, 0.15);
+}
+
+/* Theme alignment scope for data-heavy product/material pages. */
+.products-theme .bg-white,
+.materials-theme .bg-white {
+  background-color: var(--app-surface) !important;
+}
+.products-theme .bg-gray-50,
+.products-theme .bg-gray-100,
+.materials-theme .bg-gray-50,
+.materials-theme .bg-gray-100 {
+  background-color: color-mix(in oklab, var(--app-surface) 82%, var(--app-bg)) !important;
+}
+.products-theme .border-gray-200,
+.products-theme .border-gray-300,
+.materials-theme .border-gray-200,
+.materials-theme .border-gray-300 {
+  border-color: var(--app-border) !important;
+}
+.products-theme .text-gray-900,
+.products-theme .text-gray-800,
+.materials-theme .text-gray-900,
+.materials-theme .text-gray-800 {
+  color: var(--app-text) !important;
+}
+.products-theme .text-gray-700,
+.products-theme .text-gray-600,
+.products-theme .text-gray-500,
+.materials-theme .text-gray-700,
+.materials-theme .text-gray-600,
+.materials-theme .text-gray-500 {
+  color: var(--app-muted) !important;
 }

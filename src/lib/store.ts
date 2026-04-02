@@ -303,10 +303,13 @@ export const useUIStore = create<UIState>()(
 
 // --- OFFLINE SYNC STORE ---
 
+export type SyncOp = 'upsert' | 'delete';
+
 interface PendingSync {
   id: string;
-  type: 'transaction' | 'product' | 'stock';
-  data: Transaction | Product | Record<string, unknown>;
+  table: string;
+  op: SyncOp;
+  row: Record<string, unknown>;
   createdAt: Date;
   retryCount: number;
   nextRetryAt?: Date;
@@ -316,7 +319,11 @@ interface SyncState {
   pendingSyncs: PendingSync[];
   isSyncing: boolean;
   lastSyncedAt?: Date;
-  addPendingSync: (type: PendingSync['type'], data: PendingSync['data']) => void;
+  lastSyncError?: string;
+  lastSyncErrorCode?: string;
+  addPendingRowChange: (table: string, op: SyncOp, row: Record<string, unknown>) => void;
+  /** Legacy helper (kept for existing call sites). */
+  addPendingSync: (type: 'transaction' | 'product' | 'stock', data: Transaction | Product | Record<string, unknown>) => void;
   removePendingSync: (id: string) => void;
   clearSyncs: () => void;
   processSyncQueue: () => Promise<void>;
@@ -328,19 +335,27 @@ export const useSyncStore = create<SyncState>()(
       pendingSyncs: [],
       isSyncing: false,
       lastSyncedAt: undefined,
-      addPendingSync: (type, data) => set((state) => ({
+      lastSyncError: undefined,
+      lastSyncErrorCode: undefined,
+      addPendingRowChange: (table, op, row) => set((state) => ({
         pendingSyncs: [
           ...state.pendingSyncs,
           {
             id: crypto.randomUUID(),
-            type,
-            data,
+            table,
+            op,
+            row,
             createdAt: new Date(),
             retryCount: 0,
             nextRetryAt: new Date(),
           }
         ]
       })),
+      addPendingSync: (type, data) => {
+        const table = type === 'transaction' ? 'transactions' : 'products';
+        const row = (data ?? {}) as Record<string, unknown>;
+        get().addPendingRowChange(table, 'upsert', row);
+      },
       removePendingSync: (id) => set((state) => ({
         pendingSyncs: state.pendingSyncs.filter(s => s.id !== id)
       })),
@@ -361,11 +376,25 @@ export const useSyncStore = create<SyncState>()(
           const result = await syncPendingBatch(due);
           const succeeded = new Set(result.succeeded);
           const retry = new Set(result.retry);
+          const globalRetryAfterMs =
+            typeof (result as any).retryAfterMs === 'number' ? ((result as any).retryAfterMs as number) : undefined;
+          const errorCode =
+            typeof (result as any).errorCode === 'string' ? ((result as any).errorCode as string) : undefined;
+          const message =
+            typeof (result as any).message === 'string' ? ((result as any).message as string) : undefined;
           set((prev) => ({
             pendingSyncs: prev.pendingSyncs
               .filter((it) => !succeeded.has(it.id))
               .map((it) => {
                 if (!retry.has(it.id)) return it;
+                // If backend endpoint is missing (common on localhost with Vite dev),
+                // back off longer and do not aggressively retry.
+                if (globalRetryAfterMs) {
+                  return {
+                    ...it,
+                    nextRetryAt: new Date(Date.now() + globalRetryAfterMs),
+                  };
+                }
                 const nextCount = Math.min(MAX_RETRY_COUNT, (it.retryCount ?? 0) + 1);
                 return {
                   ...it,
@@ -373,7 +402,10 @@ export const useSyncStore = create<SyncState>()(
                   nextRetryAt: new Date(Date.now() + backoffMs(nextCount)),
                 };
               }),
-            lastSyncedAt: new Date(),
+            // Only mark as synced if at least one item succeeded.
+            lastSyncedAt: succeeded.size > 0 ? new Date() : prev.lastSyncedAt,
+            lastSyncError: succeeded.size > 0 ? undefined : (message ?? prev.lastSyncError),
+            lastSyncErrorCode: succeeded.size > 0 ? undefined : (errorCode ?? prev.lastSyncErrorCode),
           }));
         } finally {
           set({ isSyncing: false });

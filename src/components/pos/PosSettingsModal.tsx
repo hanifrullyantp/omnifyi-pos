@@ -8,6 +8,7 @@ import {
   disconnectBluetoothPrinter,
   isBluetoothPrinterConnected,
   isWebBluetoothAvailable,
+  printTextToBluetooth,
 } from '../../lib/bluetoothReceiptPrinter';
 
 type Props = {
@@ -154,6 +155,34 @@ export function PosSettingsModal({ isOpen, onClose }: Props) {
                     Putus
                   </button>
                 </div>
+                <button
+                  type="button"
+                  disabled={btBusy || !btConnected}
+                  onClick={async () => {
+                    setBtError('');
+                    setBtBusy(true);
+                    try {
+                      await printTextToBluetooth(
+                        [
+                          'OMNIFYI POS',
+                          '=============================',
+                          'TEST PRINT',
+                          `Waktu: ${new Date().toLocaleString('id-ID')}`,
+                          '=============================',
+                          'Jika struk keluar, printer OK.',
+                          '',
+                        ].join('\n')
+                      );
+                    } catch (e) {
+                      setBtError(e instanceof Error ? e.message : 'Gagal test print');
+                    } finally {
+                      setBtBusy(false);
+                    }
+                  }}
+                  className="mt-2 w-full py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 text-sm font-semibold disabled:opacity-50"
+                >
+                  {btBusy ? 'Mencetak…' : 'Test Print'}
+                </button>
               </div>
             </div>
           </motion.div>

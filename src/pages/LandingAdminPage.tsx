@@ -8,6 +8,7 @@ const contentEdgeUrl = typeof import.meta.env.VITE_CONTENT_EDGE_URL === 'string'
 export default function LandingAdminPage() {
   const { currentUser, logout } = useAuthStore();
   const [msg, setMsg] = useState('');
+  const [edgeHealth, setEdgeHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
   const [tab, setTab] = useState<'config' | 'content' | 'notification' | 'media'>('config');
   const [jsonText, setJsonText] = useState('');
   const [content, setContent] = useState<LandingContent | null>(null);
@@ -25,6 +26,25 @@ export default function LandingAdminPage() {
     });
   }, []);
 
+  const checkEdge = async () => {
+    if (!contentEdgeUrl) {
+      setEdgeHealth('fail');
+      setMsg('Edge belum aktif di build. Set VITE_CONTENT_EDGE_URL + VITE_CONTENT_ADMIN_SECRET di Vercel lalu redeploy.');
+      return;
+    }
+    try {
+      const url = String(import.meta.env.VITE_CONTENT_EDGE_URL).trim();
+      const res = await fetch(`${url}?action=get`, { method: 'GET' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setEdgeHealth('ok');
+      setMsg('Edge OK. Publish akan tersimpan di cloud dan sinkron lintas incognito.');
+    } catch (e) {
+      setEdgeHealth('fail');
+      const m = e instanceof Error ? e.message : String(e);
+      setMsg(`Edge tidak bisa diakses: ${m}. Cek deploy function, URL, dan env build (Vercel).`);
+    }
+  };
+
   const applyJson = () => {
     try {
       const parsed = JSON.parse(jsonText) as LandingContent;
@@ -37,10 +57,20 @@ export default function LandingAdminPage() {
 
   const save = async () => {
     if (!content) return;
-    await saveLandingContent(content);
-    setDraftBase(content);
-    setJsonText(JSON.stringify(content, null, 2));
-    setMsg('Content tersimpan ke Supabase Edge Function (atau fallback lokal).');
+    setMsg('');
+    try {
+      await saveLandingContent(content);
+      setDraftBase(content);
+      setJsonText(JSON.stringify(content, null, 2));
+      setMsg(
+        contentEdgeUrl
+          ? 'Tersimpan & dipublikasikan (Supabase Edge). Buka lain/incognito setelah ini.'
+          : 'Hanya tersimpan di browser ini. Set VITE_CONTENT_EDGE_URL + VITE_CONTENT_ADMIN_SECRET di Vercel, lalu redeploy.',
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMsg(`Gagal publikasi: ${msg}. Cek badge di atas (harus “Edge content aktif”), secret, dan deploy.`);
+    }
   };
 
   const onUpload = async (file?: File) => {
@@ -48,7 +78,7 @@ export default function LandingAdminPage() {
     const url = await uploadAsset(file);
     setContent({ ...content, heroImageUrl: url });
     setJsonText(JSON.stringify({ ...content, heroImageUrl: url }, null, 2));
-    setMsg('Upload selesai. URL gambar disimpan.');
+    setMsg('Upload selesai. URL aset disimpan. Klik link/preview untuk verifikasi.');
   };
 
   useEffect(() => {
@@ -131,10 +161,33 @@ export default function LandingAdminPage() {
             }`}
             title="Set VITE_CONTENT_EDGE_URL di build untuk simpan konten ke Edge Function"
           >
-            {contentEdgeUrl ? 'Edge content aktif' : 'Penyimpanan lokal (localStorage)'}
+            {contentEdgeUrl
+              ? edgeHealth === 'ok'
+                ? 'Edge content aktif (OK)'
+                : edgeHealth === 'fail'
+                ? 'Edge content aktif (cek)'
+                : 'Edge content aktif'
+              : 'Penyimpanan lokal (localStorage)'}
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void checkEdge()}
+            className="px-3 py-2 rounded-lg border border-white/20 text-white text-sm font-semibold"
+            title="Cek apakah Edge Function bisa diakses dari browser ini"
+          >
+            Cek Edge
+          </button>
+          <a
+            href="/"
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-2 rounded-lg border border-white/20 text-white text-sm font-semibold"
+            title="Buka landing publik untuk verifikasi hasil publish"
+          >
+            Buka Landing
+          </a>
           <button onClick={() => void save()} disabled={!canSave} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold disabled:opacity-50">Simpan & Publish</button>
           <button
             onClick={() => {
@@ -357,6 +410,30 @@ export default function LandingAdminPage() {
               <input value={content.heroImageUrl ?? ''} onChange={(e) => setContent({ ...content, heroImageUrl: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-[#0B172F] border border-white/10 text-sm" placeholder="Hero image URL" />
               <input value={content.demoVideoUrl ?? ''} onChange={(e) => setContent({ ...content, demoVideoUrl: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-[#0B172F] border border-white/10 text-sm" placeholder="Demo video URL" />
               <input type="file" accept="image/*,video/*,audio/*" className="block mt-1 text-xs" onChange={(e) => void onUpload(e.target.files?.[0])} />
+              {(content.heroImageUrl || content.logoUrl || content.faviconUrl || content.demoVideoUrl) && (
+                <div className="pt-2 space-y-1 text-xs">
+                  {content.heroImageUrl && (
+                    <a className="underline text-emerald-300" href={content.heroImageUrl} target="_blank" rel="noreferrer">
+                      Buka Hero Image
+                    </a>
+                  )}
+                  {content.logoUrl && (
+                    <a className="underline text-emerald-300" href={content.logoUrl} target="_blank" rel="noreferrer">
+                      Buka Logo
+                    </a>
+                  )}
+                  {content.faviconUrl && (
+                    <a className="underline text-emerald-300" href={content.faviconUrl} target="_blank" rel="noreferrer">
+                      Buka Favicon
+                    </a>
+                  )}
+                  {content.demoVideoUrl && (
+                    <a className="underline text-emerald-300" href={content.demoVideoUrl} target="_blank" rel="noreferrer">
+                      Buka Demo Video
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

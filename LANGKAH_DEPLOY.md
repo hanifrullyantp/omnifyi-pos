@@ -1,4 +1,4 @@
-# Panduan deploy Omnifyi POS — untuk pemula
+# Panduan deploy Omnifyi POS — untuk pemula. ok
 
 Ditulis untuk yang **baru pertama kali** dan belum paham istilah seperti *repository* atau *Git*. Anda bisa ikuti dari atas ke bawah.
 
@@ -192,7 +192,7 @@ Ikuti pertanyaan di layar. Ini **alternatif** kalau tidak pakai GitHub + import 
 
 | File | Isi |
 |------|-----|
-| **`MANUAL_SETUP.md`** | Setelan lanjutan (Midtrans, email, Supabase, variabel lingkungan). |
+| **`MANUAL_SETUP.md`** | Panduan awam: Supabase (template di `supabase/functions/`), Midtrans, Resend, variabel lingkungan. |
 | **`DOKUMENTASI_FITUR_APLIKASI.md`** | Penjelasan fitur aplikasi. |
 | **`.env.example`** | Nama variabel opsional untuk CMS landing. |
 

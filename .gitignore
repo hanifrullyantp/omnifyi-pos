@@ -12,6 +12,10 @@ dist-ssr
 # Vercel CLI (berisi link proyek; aman di-ignore jika Anda prefer hanya Git integration)
 .vercel
 
+# Supabase CLI cache (lokal)
+supabase/.temp/
+
 # Editor / OS
 .DS_Store
 *.log
+.env*.local

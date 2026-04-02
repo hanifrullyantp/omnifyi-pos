@@ -12,9 +12,11 @@ import {
   Database,
   CreditCard,
   Shield,
+  RefreshCw,
+  X,
 } from 'lucide-react';
-import { db, type Business, type Cashier, type User as OwnerUser } from '../lib/db';
-import { useAuthStore } from '../lib/store';
+import { db, type Business, type Cashier, type PaymentManualAccount, type User as OwnerUser } from '../lib/db';
+import { useAuthStore, useSyncStore } from '../lib/store';
 import { formatCurrency } from '../lib/utils';
 import { logActivity } from '../lib/activityLog';
 
@@ -26,14 +28,24 @@ const SECTIONS = [
   { id: 'notify', label: 'Notifikasi', icon: Bell },
   { id: 'printer', label: 'Printer', icon: Printer },
   { id: 'data', label: 'Data & backup', icon: Database },
+  { id: 'sync', label: 'Sync', icon: RefreshCw },
   { id: 'billing', label: 'Langganan', icon: CreditCard },
 ] as const;
 
-export default function SettingsPage() {
+type SectionId = (typeof SECTIONS)[number]['id'];
+
+export default function SettingsPage({ initialSection }: { initialSection?: SectionId } = {}) {
   const { currentUser, currentBusiness, currentTenant, setAuth, businesses } = useAuthStore();
-  const [section, setSection] = useState<(typeof SECTIONS)[number]['id']>('account');
+  const [section, setSection] = useState<SectionId>(initialSection ?? 'account');
   const bid = currentBusiness?.id;
   const tid = currentTenant?.id;
+  const pendingSyncs = useSyncStore((s) => s.pendingSyncs);
+  const isSyncing = useSyncStore((s) => s.isSyncing);
+  const lastSyncedAt = useSyncStore((s) => s.lastSyncedAt);
+  const lastSyncError = useSyncStore((s) => s.lastSyncError);
+  const lastSyncErrorCode = useSyncStore((s) => s.lastSyncErrorCode);
+  const processSyncQueue = useSyncStore((s) => s.processSyncQueue);
+  const clearSyncs = useSyncStore((s) => s.clearSyncs);
 
   const cashiers = useLiveQuery(
     () => (bid ? db.cashiers.where('businessId').equals(bid).toArray() : []),
@@ -48,6 +60,34 @@ export default function SettingsPage() {
   });
 
   const [bizForm, setBizForm] = useState<Partial<Business>>({});
+  const [manualAccountsOpen, setManualAccountsOpen] = useState(false);
+  const [manualAccountDraft, setManualAccountDraft] = useState<Partial<PaymentManualAccount>>({
+    type: 'EWALLET',
+    provider: 'DANA',
+    label: '',
+    ownerName: '',
+    accountNumber: '',
+    instructions: '',
+    isActive: true,
+  });
+
+  const manualAccounts = useLiveQuery(
+    () =>
+      bid
+        ? db.paymentManualAccounts
+            .where('businessId')
+            .equals(bid)
+            .toArray()
+            .then((xs) =>
+              xs.sort(
+                (a, b) =>
+                  Number(b.isActive) - Number(a.isActive) ||
+                  (b.updatedAt?.getTime?.() ?? 0) - (a.updatedAt?.getTime?.() ?? 0),
+              ),
+            )
+        : [],
+    [bid],
+  );
 
   useEffect(() => {
     if (currentUser) {
@@ -75,6 +115,10 @@ export default function SettingsPage() {
         skuAutoPrefix: currentBusiness.skuAutoPrefix ?? 'SKU',
         defaultUnit: currentBusiness.defaultUnit ?? 'pcs',
         printerPaperMm: currentBusiness.printerPaperMm ?? 58,
+        requireStockOpnameAfterClose: currentBusiness.requireStockOpnameAfterClose ?? false,
+        stockOpnameAutoApprove: currentBusiness.stockOpnameAutoApprove ?? false,
+        manualPaymentEnabled: currentBusiness.manualPaymentEnabled ?? false,
+        manualPaymentProofRequired: currentBusiness.manualPaymentProofRequired ?? false,
       });
     }
   }, [currentBusiness]);
@@ -124,6 +168,10 @@ export default function SettingsPage() {
       skuAutoPrefix: bizForm.skuAutoPrefix,
       defaultUnit: bizForm.defaultUnit,
       printerPaperMm: bizForm.printerPaperMm,
+      requireStockOpnameAfterClose: !!bizForm.requireStockOpnameAfterClose,
+      stockOpnameAutoApprove: !!bizForm.stockOpnameAutoApprove,
+      manualPaymentEnabled: !!bizForm.manualPaymentEnabled,
+      manualPaymentProofRequired: !!bizForm.manualPaymentProofRequired,
     });
     const b = await db.businesses.get(currentBusiness.id);
     if (b && currentUser && currentTenant) setAuth(currentUser, currentTenant, b, businesses);
@@ -363,6 +411,65 @@ export default function SettingsPage() {
                   className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
                 />
               </Field>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                <p className="font-bold text-gray-900 dark:text-white mb-2">Stock opname</p>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!bizForm.requireStockOpnameAfterClose}
+                    onChange={(e) => setBizForm({ ...bizForm, requireStockOpnameAfterClose: e.target.checked })}
+                  />
+                  Wajib stock opname setelah tutup toko (kasir)
+                </label>
+                <label className="mt-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!bizForm.stockOpnameAutoApprove}
+                    onChange={(e) => setBizForm({ ...bizForm, stockOpnameAutoApprove: e.target.checked })}
+                  />
+                  Auto-approve (tanpa persetujuan owner)
+                </label>
+                <p className="mt-2 text-xs text-gray-500">
+                  Jika auto-approve aktif, hasil opname kasir langsung mengubah stok setelah submit.
+                </p>
+              </div>
+              <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                <p className="font-bold text-gray-900 dark:text-white mb-2">Pembayaran non-tunai (manual)</p>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!bizForm.manualPaymentEnabled}
+                    onChange={(e) => setBizForm({ ...bizForm, manualPaymentEnabled: e.target.checked })}
+                  />
+                  Aktifkan Transfer/E-Wallet manual di kasir
+                </label>
+                <label className="mt-2 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={!!bizForm.manualPaymentProofRequired}
+                    onChange={(e) => setBizForm({ ...bizForm, manualPaymentProofRequired: e.target.checked })}
+                    disabled={!bizForm.manualPaymentEnabled}
+                  />
+                  Bukti bayar wajib (foto/screenshot)
+                </label>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <div className="text-xs text-gray-500">Akun tujuan yang ditampilkan di kasir.</div>
+                  <button
+                    type="button"
+                    onClick={() => setManualAccountsOpen(true)}
+                    className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold"
+                    disabled={!bizForm.manualPaymentEnabled}
+                  >
+                    Kelola akun
+                  </button>
+                </div>
+
+                {bizForm.manualPaymentEnabled && (manualAccounts ?? []).length === 0 && (
+                  <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    Belum ada akun manual. Tambahkan minimal 1 akun agar kasir bisa memilih Transfer/E-Wallet.
+                  </p>
+                )}
+              </div>
               <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4 text-sm text-gray-600 dark:text-gray-400">
                 <p className="font-medium text-gray-900 dark:text-white mb-2">Preview struk</p>
                 <pre className="font-mono text-xs whitespace-pre-wrap bg-white dark:bg-gray-900 p-3 rounded-lg">
@@ -383,6 +490,206 @@ export default function SettingsPage() {
                 Simpan bisnis
               </button>
             </Panel>
+          )}
+
+          {manualAccountsOpen && (
+            <div className="fixed inset-0 z-[90] bg-black/60 flex items-center justify-center p-4">
+              <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl overflow-hidden">
+                <div className="p-5 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+                  <p className="font-bold text-gray-900 dark:text-white">Kelola akun pembayaran manual</p>
+                  <button
+                    type="button"
+                    onClick={() => setManualAccountsOpen(false)}
+                    className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-5 grid md:grid-cols-2 gap-4">
+                  <div className="rounded-2xl border border-gray-200 dark:border-gray-800 p-4">
+                    <p className="font-semibold text-gray-900 dark:text-white mb-3">Tambah akun</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Tipe">
+                        <select
+                          value={manualAccountDraft.type ?? 'EWALLET'}
+                          onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, type: e.target.value as any })}
+                          className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        >
+                          <option value="BANK">BANK</option>
+                          <option value="EWALLET">EWALLET</option>
+                        </select>
+                      </Field>
+                      <Field label="Provider">
+                        <select
+                          value={manualAccountDraft.provider ?? 'OTHER'}
+                          onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, provider: e.target.value as any })}
+                          className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        >
+                          {['BCA', 'BRI', 'BNI', 'MANDIRI', 'PERMATA', 'DANA', 'OVO', 'GOPAY', 'LINKAJA', 'SHOPEEPAY', 'OTHER'].map(
+                            (p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </Field>
+                    </div>
+                    <Field label="Label">
+                      <input
+                        value={manualAccountDraft.label ?? ''}
+                        onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, label: e.target.value })}
+                        className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        placeholder="Mis. BCA - Toko A / DANA - Pak Budi"
+                      />
+                    </Field>
+                    <Field label="Nama pemilik (opsional)">
+                      <input
+                        value={manualAccountDraft.ownerName ?? ''}
+                        onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, ownerName: e.target.value })}
+                        className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        placeholder="Nama pemilik rekening/ewallet"
+                      />
+                    </Field>
+                    <Field label="Nomor akun (rekening / no HP e-wallet)">
+                      <input
+                        value={manualAccountDraft.accountNumber ?? ''}
+                        onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, accountNumber: e.target.value })}
+                        className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        placeholder="Contoh: 1234567890 / 0812xxxx"
+                      />
+                    </Field>
+                    <Field label="Instruksi (opsional)">
+                      <input
+                        value={manualAccountDraft.instructions ?? ''}
+                        onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, instructions: e.target.value })}
+                        className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                        placeholder="Mis. Tulis catatan: INV-xxxx"
+                      />
+                    </Field>
+                    <label className="mt-2 flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={manualAccountDraft.isActive ?? true}
+                        onChange={(e) => setManualAccountDraft({ ...manualAccountDraft, isActive: e.target.checked })}
+                      />
+                      Aktif
+                    </label>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!bid || !tid) return;
+                        const label = String(manualAccountDraft.label ?? '').trim();
+                        const accountNumber = String(manualAccountDraft.accountNumber ?? '').trim();
+                        if (!label || !accountNumber) return;
+                        const now = new Date();
+                        const existingId = typeof manualAccountDraft.id === 'string' && manualAccountDraft.id ? manualAccountDraft.id : null;
+                        if (existingId) {
+                          await db.paymentManualAccounts.update(existingId, {
+                            type: (manualAccountDraft.type ?? 'EWALLET') as any,
+                            provider: (manualAccountDraft.provider ?? 'OTHER') as any,
+                            label,
+                            ownerName: String(manualAccountDraft.ownerName ?? '').trim() || undefined,
+                            accountNumber,
+                            instructions: String(manualAccountDraft.instructions ?? '').trim() || undefined,
+                            isActive: manualAccountDraft.isActive ?? true,
+                            updatedAt: now,
+                          });
+                        } else {
+                          await db.paymentManualAccounts.add({
+                            id: crypto.randomUUID(),
+                          tenantId: tid,
+                          businessId: bid,
+                          type: (manualAccountDraft.type ?? 'EWALLET') as any,
+                          provider: (manualAccountDraft.provider ?? 'OTHER') as any,
+                          label,
+                          ownerName: String(manualAccountDraft.ownerName ?? '').trim() || undefined,
+                          accountNumber,
+                          instructions: String(manualAccountDraft.instructions ?? '').trim() || undefined,
+                          isActive: manualAccountDraft.isActive ?? true,
+                          createdAt: now,
+                          updatedAt: now,
+                          } as PaymentManualAccount);
+                        }
+                        setManualAccountDraft({
+                          type: manualAccountDraft.type ?? 'EWALLET',
+                          provider: manualAccountDraft.provider ?? 'OTHER',
+                          id: undefined,
+                          label: '',
+                          ownerName: '',
+                          accountNumber: '',
+                          instructions: '',
+                          isActive: true,
+                        });
+                      }}
+                      className="mt-4 w-full px-4 py-3 rounded-xl bg-brand-600 text-white font-semibold"
+                    >
+                      Simpan akun
+                    </button>
+                  </div>
+
+                  <div className="rounded-2xl border border-gray-200 dark:border-gray-800 p-4">
+                    <p className="font-semibold text-gray-900 dark:text-white mb-3">Daftar akun</p>
+                    <div className="space-y-2">
+                      {(manualAccounts ?? []).map((a) => (
+                        <div
+                          key={a.id}
+                          className="rounded-xl border border-gray-200 dark:border-gray-800 p-3 flex items-start justify-between gap-3"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-semibold text-gray-900 dark:text-white truncate">
+                              {a.label} <span className="text-xs font-medium text-gray-500">({a.provider})</span>
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                              {a.ownerName ? `${a.ownerName} • ` : ''}
+                              {a.accountNumber}
+                            </p>
+                            {a.instructions ? <p className="text-xs text-gray-500 mt-1">{a.instructions}</p> : null}
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!a.id) return;
+                                await db.paymentManualAccounts.update(a.id, { isActive: !a.isActive, updatedAt: new Date() });
+                              }}
+                              className="px-3 py-1.5 rounded-lg border text-xs"
+                            >
+                              {a.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setManualAccountDraft({
+                                  ...a,
+                                  ownerName: a.ownerName ?? '',
+                                  instructions: a.instructions ?? '',
+                                });
+                              }}
+                              className="px-3 py-1.5 rounded-lg border text-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!a.id) return;
+                                await db.paymentManualAccounts.delete(a.id);
+                              }}
+                              className="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-xs"
+                            >
+                              Hapus
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                      {(manualAccounts ?? []).length === 0 ? <p className="text-sm text-gray-500">Belum ada akun.</p> : null}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
 
           {section === 'cashiers' && (
@@ -530,6 +837,119 @@ export default function SettingsPage() {
             </Panel>
           )}
 
+          {section === 'sync' && (
+            <Panel title="Sync (offline queue)" icon={RefreshCw}>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                Ini adalah antrean perubahan lokal yang akan dikirim ke server saat online (bila endpoint sync tersedia).
+              </p>
+              <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-white/50 dark:bg-gray-900/30">
+                  <p className="text-xs text-gray-500">Pending</p>
+                  <p className="text-2xl font-extrabold tabular-nums">{pendingSyncs.length}</p>
+                </div>
+                <div className="rounded-xl border border-gray-200 dark:border-gray-700 p-4 bg-white/50 dark:bg-gray-900/30">
+                  <p className="text-xs text-gray-500">Last synced</p>
+                  <p className="text-sm font-semibold mt-1">
+                    {lastSyncedAt ? new Date(lastSyncedAt).toLocaleString('id-ID') : '—'}
+                  </p>
+                  {lastSyncError && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                      {lastSyncErrorCode ? `[${lastSyncErrorCode}] ` : ''}
+                      {lastSyncError}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button
+                  type="button"
+                  disabled={pendingSyncs.length === 0 || isSyncing}
+                  onClick={() => void processSyncQueue()}
+                  className="px-4 py-3 rounded-lg bg-brand-600 text-white font-semibold min-h-[44px] disabled:opacity-50"
+                >
+                  {isSyncing ? 'Syncing…' : 'Sync sekarang'}
+                </button>
+                <button
+                  type="button"
+                  disabled={pendingSyncs.length === 0}
+                  onClick={() => clearSyncs()}
+                  className="px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-600 font-semibold min-h-[44px] disabled:opacity-50"
+                >
+                  Clear antrean
+                </button>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
+                  <p className="text-sm font-semibold">Ringkasan per tabel</p>
+                </div>
+                <div className="p-4">
+                  {pendingSyncs.length === 0 ? (
+                    <p className="text-sm text-gray-500">Tidak ada pending.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {Array.from(
+                        pendingSyncs.reduce((m, it) => {
+                          m.set(it.table, (m.get(it.table) ?? 0) + 1);
+                          return m;
+                        }, new Map<string, number>())
+                      )
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([table, count]) => (
+                          <span
+                            key={table}
+                            className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                          >
+                            {table}: {count}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-100 dark:border-gray-700">
+                  <p className="text-sm font-semibold">Detail (maks 50 item)</p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-gray-500">
+                      <tr>
+                        <th className="p-3">Tabel</th>
+                        <th className="p-3">Op</th>
+                        <th className="p-3">ID</th>
+                        <th className="p-3">Waktu</th>
+                        <th className="p-3 text-right">Retry</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pendingSyncs.slice(0, 50).map((it) => (
+                        <tr key={it.id} className="border-t border-gray-100 dark:border-gray-700">
+                          <td className="p-3 font-mono text-xs">{it.table}</td>
+                          <td className="p-3">{it.op}</td>
+                          <td className="p-3 font-mono text-xs">{String((it.row as any)?.id ?? '').slice(0, 18)}</td>
+                          <td className="p-3 text-xs text-gray-500">
+                            {new Date(it.createdAt).toLocaleString('id-ID')}
+                          </td>
+                          <td className="p-3 text-right tabular-nums">{it.retryCount ?? 0}</td>
+                        </tr>
+                      ))}
+                      {pendingSyncs.length === 0 && (
+                        <tr>
+                          <td className="p-6 text-center text-gray-500" colSpan={5}>
+                            Tidak ada pending.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </Panel>
+          )}
+
           {section === 'billing' && currentTenant && (
             <Panel title="Langganan" icon={CreditCard}>
               <p className="text-sm">
@@ -588,6 +1008,7 @@ function CashierEditorList({
 }) {
   const [editing, setEditing] = useState<Cashier | null>(null);
   const [newPin, setNewPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
 
   const buildCashierLink = (cashierId: string) => {
     const origin = window.location.origin;
@@ -598,6 +1019,7 @@ function CashierEditorList({
     if (!editing?.id) return;
     await db.cashiers.update(editing.id, {
       name: editing.name,
+      whatsapp: editing.whatsapp?.trim() || undefined,
       isActive: editing.isActive,
       canVoid: editing.canVoid ?? true,
       canDiscount: editing.canDiscount ?? true,
@@ -607,6 +1029,7 @@ function CashierEditorList({
     });
     setEditing(null);
     setNewPin('');
+    setShowPin(false);
   };
 
   return (
@@ -698,6 +1121,14 @@ function CashierEditorList({
               />
               Aktif
             </label>
+            <Field label="No WhatsApp (opsional)">
+              <input
+                value={editing.whatsapp ?? ''}
+                onChange={(e) => setEditing({ ...editing, whatsapp: e.target.value })}
+                className="w-full rounded-lg border px-3 py-2 dark:bg-gray-900 dark:border-gray-600"
+                placeholder="contoh: 62812xxxxxxx"
+              />
+            </Field>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
@@ -733,12 +1164,22 @@ function CashierEditorList({
               Boleh lihat laporan
             </label>
             <Field label="Reset PIN (6 digit)">
-              <input
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                className="w-full rounded-lg border px-3 py-2 font-mono dark:bg-gray-900 dark:border-gray-600"
-                placeholder="Kosongkan jika tidak diubah"
-              />
+              <div className="flex gap-2">
+                <input
+                  type={showPin ? 'text' : 'password'}
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="flex-1 rounded-lg border px-3 py-2 font-mono dark:bg-gray-900 dark:border-gray-600"
+                  placeholder="Kosongkan jika tidak diubah"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin((v) => !v)}
+                  className="px-3 rounded-lg border dark:border-gray-600 text-sm"
+                >
+                  {showPin ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </Field>
             <div className="flex gap-2 pt-2">
               <button

@@ -1,8 +1,13 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useSyncStore } from './lib/store';
-import { db, seedInitialData, Cashier, resetDemoData } from './lib/db';
+import { db, seedInitialData, seedDemoWorkspace, Cashier, resetDemoData } from './lib/db';
 import { logActivity, formatActivityAction } from './lib/activityLog';
+import { supabase } from './lib/supabaseClient';
+import { ensureLocalCoreRows, provisionTenantAndBusiness } from './lib/cloudProvision';
+import { installSyncHooks } from './lib/syncHooks';
+import { pullAllChangesForTenant } from './lib/pullChanges';
+import { applyTheme, getInitialThemeMode, persistThemeMode, resolveTheme, ThemeMode } from './lib/theme';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -48,6 +53,8 @@ import {
   Shield,
   Sparkles,
   Play,
+  Sun,
+  Moon,
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatCurrency } from './lib/utils';
@@ -57,6 +64,7 @@ import {
   AreaChart, Area,
 } from 'recharts';
 import POSScreen from './components/pos/POSScreen';
+import CashierDashboardScreen from './components/pos/CashierDashboardScreen';
 import { ProductsPage } from './pages/ProductsPage';
 import { MaterialsPage } from './components/materials';
 import { FinanceRouteLayout } from './pages/FinancePage';
@@ -74,12 +82,81 @@ import ReportsPage from './pages/ReportsPage';
 import TransactionsPage from './pages/TransactionsPage';
 import SuperAdminPage from './pages/SuperAdminPage';
 import MembersPage from './pages/MembersPage';
+import StorePage from './pages/StorePage';
+import StockOpnamePage from './pages/StockOpnamePage';
+import TasksKanbanPage from './pages/TasksKanbanPage';
+import StoreShiftsPage from './pages/store/StoreShiftsPage';
+import StoreRolesPage from './pages/store/StoreRolesPage';
+import StoreStaffPage from './pages/store/StoreStaffPage';
+import StoreAttendancePage from './pages/store/StoreAttendancePage';
+import StorePayrollPage from './pages/store/StorePayrollPage';
+import StoreBusinessSettingsPage from './pages/store/StoreBusinessSettingsPage';
 import { PwaInstallBanner } from './components/shared/PwaInstallBanner';
 import { SyncStatusChip } from './components/shared/SyncStatusChip';
-import { runLocalBillingFlow } from './lib/billingFlow';
+import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from './lib/billingFlow';
 import { loadSuperAdminSettings, SuperAdminSettings } from './lib/superAdminSettings';
-import MarketingPage from './app/(marketing)/page';
+import LoginLandingPage from './pages/LoginLandingPage';
 import LandingAdminPage from './pages/LandingAdminPage';
+
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; errorMessage?: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return { hasError: true, errorMessage: error instanceof Error ? error.message : String(error) };
+  }
+
+  componentDidCatch(error: unknown) {
+    // Keep a console trace for diagnostics without blank screen.
+    // eslint-disable-next-line no-console
+    console.error('AppErrorBoundary caught error', error);
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children;
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex items-center justify-center p-6">
+        <div className="w-full max-w-md rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 p-6 shadow-sm">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-6 h-6 text-red-600 mt-0.5" />
+            <div className="flex-1">
+              <h1 className="font-bold text-lg">Terjadi error</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                Aplikasi tidak menampilkan blank lagi. Silakan refresh, atau kembali ke Dashboard.
+              </p>
+              {this.state.errorMessage ? (
+                <pre className="mt-3 text-xs whitespace-pre-wrap break-words rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-3 text-gray-700 dark:text-gray-300">
+                  {this.state.errorMessage}
+                </pre>
+              ) : null}
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl bg-brand-600 text-white font-semibold hover:bg-brand-700"
+                  onClick={() => window.location.reload()}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 rounded-xl border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-900"
+                  onClick={() => (window.location.href = '/dashboard')}
+                >
+                  Ke Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
 
 // ============================================
 // AUTHENTICATION SCREENS
@@ -102,6 +179,10 @@ const OwnerLoginScreen = () => {
   const [checkoutEmail, setCheckoutEmail] = useState('');
   const [checkoutPackage, setCheckoutPackage] = useState<'starter' | 'growth' | 'pro'>('growth');
   const [checkoutStatus, setCheckoutStatus] = useState('');
+  const [checkoutOrderId, setCheckoutOrderId] = useState('');
+  const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
+  const [checkoutLeadId, setCheckoutLeadId] = useState('');
+  const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
   const [buyerMessage, setBuyerMessage] = useState('');
   const [cms, setCms] = useState<SuperAdminSettings>(() => loadSuperAdminSettings());
   const { setAuth } = useAuthStore();
@@ -155,22 +236,26 @@ const OwnerLoginScreen = () => {
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
   const loginCredentials = async (e: string, p: string) => {
-    const user = await db.users.where('email').equals(e).first();
-    if (!user) {
-      setError('Email tidak ditemukan');
+    const emailNorm = e.trim().toLowerCase();
+    const pass = p.trim();
+    if (!supabase) {
+      setError('Supabase env belum diset. Isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di .env.local lalu restart dev server.');
       return false;
     }
-    const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
-    if (!tenant) {
-      setError('Tenant tidak ditemukan');
+    const { data, error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: pass });
+    if (error || !data.user) {
+      setError('Email atau password salah');
       return false;
     }
-    const businesses = await db.businesses.where('tenantId').equals(tenant.id!).toArray();
-    if (businesses.length === 0) {
-      setError('Tidak ada usaha terdaftar');
-      return false;
-    }
-    setAuth(user, tenant, businesses[0], businesses);
+    const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+    const { user, tenant, business } = await ensureLocalCoreRows({
+      userId: data.user.id,
+      email: emailNorm,
+      tenantId,
+      businessId,
+      businessName: 'Usaha Baru',
+    });
+    setAuth(user, tenant, business, [business]);
     return true;
   };
 
@@ -193,9 +278,15 @@ const OwnerLoginScreen = () => {
     setIsLoading(true);
     setError('');
     try {
-      // Pastikan data demo ada (seed hanya berjalan jika belum ada base data).
       await seedInitialData();
-      await loginCredentials('owner@example.com', 'password');
+      await seedDemoWorkspace();
+      // Demo stays local.
+      const user = await db.users.where('email').equals('owner@example.com').first();
+      if (!user) throw new Error('demo_missing');
+      const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
+      const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
+      if (!tenant || businesses.length === 0) throw new Error('demo_missing');
+      setAuth(user, tenant, businesses[0], businesses);
     } catch (err) {
       setError('Terjadi kesalahan');
       console.error(err);
@@ -231,7 +322,6 @@ const OwnerLoginScreen = () => {
     }
     const amountMap = { starter: 99000, growth: 149000, pro: 249000 } as const;
     const amount = amountMap[checkoutPackage];
-    const orderId = `OMN-${Date.now()}`;
 
     const leadId = crypto.randomUUID();
     await db.crmLeads.add({
@@ -242,11 +332,32 @@ const OwnerLoginScreen = () => {
       businessType: 'Belum diisi',
       source: 'LANDING_CHECKOUT',
       stage: 'CHECKOUT',
-      orderId,
       amount,
       createdAt: new Date(),
     });
 
+    setCheckoutLeadId(leadId);
+
+    if (midtransEnabled) {
+      setCheckoutStatus('Membuat invoice Midtrans…');
+      const r = await startMidtransCheckout({
+        leadId,
+        packageId: checkoutPackage,
+        buyerName: checkoutName.trim(),
+        buyerEmail: checkoutEmail.trim(),
+        buyerPhone: checkoutPhone.trim(),
+        amount,
+      });
+      setCheckoutOrderId(r.orderId);
+      setCheckoutRedirectUrl(r.redirectUrl);
+      await db.crmLeads.update(leadId, { orderId: r.orderId, updatedAt: new Date() });
+      window.open(r.redirectUrl, '_blank', 'noopener,noreferrer');
+      setCheckoutStatus('Silakan selesaikan pembayaran di Midtrans, lalu klik “Saya sudah bayar”.');
+      return;
+    }
+
+    const orderId = `OMN-${Date.now()}`;
+    await db.crmLeads.update(leadId, { orderId, updatedAt: new Date() });
     setCheckoutStatus('Checkout dibuat. Menunggu pembayaran...');
     const provision = await runLocalBillingFlow({
       leadId,
@@ -255,9 +366,26 @@ const OwnerLoginScreen = () => {
       buyerName: checkoutName.trim(),
       buyerEmail: checkoutEmail.trim(),
     });
-    setCheckoutStatus(
-      `Pembayaran terdeteksi otomatis, email konfirmasi terkirim, onboarding selesai. Link set password: ${provision.setPasswordLink}`
-    );
+    setCheckoutStatus(`Pembayaran terdeteksi. Akun usaha kosong siap: login dengan ${checkoutEmail.trim()} — password sementara ${provision.tempPassword}. Atur password: ${provision.setPasswordLink}`);
+  };
+
+  const confirmCheckoutPaid = async () => {
+    if (!midtransEnabled) return;
+    if (!checkoutOrderId || !checkoutLeadId) return;
+    setCheckoutStatus('Mengecek status pembayaran…');
+    const s = await checkMidtransPaid(checkoutOrderId);
+    if (!s.paid) {
+      setCheckoutStatus(`Belum terdeteksi lunas (status: ${s.transaction_status ?? 'unknown'}). Coba lagi sebentar.`);
+      return;
+    }
+    const provision = await runLocalBillingFlow({
+      leadId: checkoutLeadId,
+      orderId: checkoutOrderId,
+      packageId: checkoutPackage,
+      buyerName: checkoutName.trim(),
+      buyerEmail: checkoutEmail.trim(),
+    });
+    setCheckoutStatus(`Pembayaran terverifikasi. Login dengan ${checkoutEmail.trim()} — password sementara ${provision.tempPassword}. Atur password: ${provision.setPasswordLink}`);
   };
 
   const submitBuyerMessage = async () => {
@@ -281,7 +409,12 @@ const OwnerLoginScreen = () => {
     setError('');
     try {
       await resetDemoData();
-      await loginCredentials('owner@example.com', 'password');
+      const user = await db.users.where('email').equals('owner@example.com').first();
+      if (!user) throw new Error('demo_missing');
+      const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
+      const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
+      if (!tenant || businesses.length === 0) throw new Error('demo_missing');
+      setAuth(user, tenant, businesses[0], businesses);
     } catch (err) {
       setError('Gagal mereset data demo');
       console.error(err);
@@ -415,7 +548,9 @@ const OwnerLoginScreen = () => {
                     type="email"
                     value={email}
                     onChange={(ev) => setEmail(ev.target.value)}
-                    onKeyDown={(ev) => ev.key === 'Enter' && handleLogin()}
+                    onKeyDown={(ev) => {
+                      if (ev.key === 'Enter') void handleLogin();
+                    }}
                     autoComplete="email"
                     className="w-full pl-10 pr-4 py-3 rounded-xl border border-white/10 bg-black/25 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50 transition-all"
                     placeholder="nama@email.com"
@@ -430,7 +565,9 @@ const OwnerLoginScreen = () => {
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(ev) => setPassword(ev.target.value)}
-                    onKeyDown={(ev) => ev.key === 'Enter' && handleLogin()}
+                    onKeyDown={(ev) => {
+                      if (ev.key === 'Enter') void handleLogin();
+                    }}
                     autoComplete="current-password"
                     className="w-full pl-10 pr-10 py-3 rounded-xl border border-white/10 bg-black/25 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-500/50 transition-all"
                     placeholder="••••••••"
@@ -448,7 +585,7 @@ const OwnerLoginScreen = () => {
 
               <button
                 type="button"
-                onClick={handleLogin}
+                onClick={() => void handleLogin()}
                 disabled={isLoading}
                 className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-400 to-lime-400 text-slate-900 shadow-lg shadow-emerald-500/25 hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99]"
               >
@@ -504,6 +641,25 @@ const OwnerLoginScreen = () => {
             <button type="button" onClick={requestCheckout} className="mt-3 w-full py-3 rounded-xl bg-gradient-to-r from-brand-500 to-emerald-400 text-slate-900 font-bold text-sm">
               Checkout & Bayar
             </button>
+            {midtransEnabled && checkoutRedirectUrl && (
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <a
+                  href={checkoutRedirectUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full py-2 rounded-xl border border-white/15 text-white text-center text-sm font-semibold"
+                >
+                  Buka pembayaran
+                </a>
+                <button
+                  type="button"
+                  onClick={() => void confirmCheckoutPaid()}
+                  className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold"
+                >
+                  Saya sudah bayar
+                </button>
+              </div>
+            )}
             {checkoutStatus && <p className="mt-2 text-xs text-emerald-300">{checkoutStatus}</p>}
             <p className="mt-2 text-[11px] text-slate-400">
               Flow: checkout → pembayaran terdeteksi → email konfirmasi → sistem kirim mekanisme login otomatis.
@@ -566,8 +722,14 @@ const OwnerLoginScreen = () => {
 };
 
 // Cashier Login Screen
-const CashierLoginScreen = () => {
-  const { currentBusiness, setCashier, logout } = useAuthStore();
+const CashierLoginScreen = ({
+  onBackToDashboard,
+  onGoToCashierDashboard,
+}: {
+  onBackToDashboard: () => void;
+  onGoToCashierDashboard: () => void;
+}) => {
+  const { currentBusiness, setCashier } = useAuthStore();
   const [selectedCashier, setSelectedCashier] = useState<Cashier | null>(null);
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -598,7 +760,7 @@ const CashierLoginScreen = () => {
       setPin(newPin);
       
       if (newPin.length === 6) {
-        verifyPin(newPin);
+        void verifyPin(newPin, 'pos');
       }
     }
   };
@@ -608,7 +770,7 @@ const CashierLoginScreen = () => {
     setError('');
   };
 
-  const verifyPin = async (enteredPin: string) => {
+  const verifyPin = async (enteredPin: string, next: 'pos' | 'cashier-dashboard') => {
     if (!selectedCashier) return;
 
     // In production, compare hashed PIN
@@ -635,6 +797,7 @@ const CashierLoginScreen = () => {
       });
 
       setCashier(selectedCashier);
+      if (next === 'cashier-dashboard') onGoToCashierDashboard();
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
@@ -681,11 +844,11 @@ const CashierLoginScreen = () => {
             </div>
 
             <button
-              onClick={logout}
+              onClick={onBackToDashboard}
               className="mt-6 w-full py-3 text-gray-500 text-sm font-medium 
                        hover:text-brand-600 transition-colors"
             >
-              ← Kembali ke Login Owner
+              ← Ke Dashboard
             </button>
           </div>
         </div>
@@ -761,6 +924,15 @@ const CashierLoginScreen = () => {
               );
             })}
           </div>
+
+          <button
+            type="button"
+            onClick={() => void verifyPin(pin, 'cashier-dashboard')}
+            disabled={isLockedOut || pin.length !== 6}
+            className="mt-4 w-full py-3 rounded-2xl bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50"
+          >
+            Dashboard Kasir
+          </button>
 
           <button
             onClick={() => {
@@ -881,6 +1053,144 @@ function OmnifyiStatCard({
             {subInfo}
           </p>
         )}
+      </div>
+    </div>
+  );
+}
+
+type MobileCardMode = {
+  id: string;
+  label: string;
+  hero: { value: string; label: string; trend?: { text: string; positive: boolean } };
+  metrics: Array<{
+    label: string;
+    value: string;
+    trend?: string;
+    tone?: 'pos' | 'neg' | 'warn' | 'muted';
+    onClick?: () => void;
+  }>;
+};
+
+function MobileSmartCard({
+  icon,
+  title,
+  accent,
+  modes,
+  modeIndex,
+  setModeIndex,
+  periodLabel,
+  onPickPeriod,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  accent: { fg: string; ring: string; bg: string };
+  modes: MobileCardMode[];
+  modeIndex: number;
+  setModeIndex: (i: number) => void;
+  periodLabel: string;
+  onPickPeriod: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const mode = modes[Math.max(0, Math.min(modes.length - 1, modeIndex))]!;
+
+  const dot = (active: boolean) =>
+    active ? `w-2 h-2 rounded-full ${accent.bg}` : 'w-1.5 h-1.5 rounded-full bg-[#30363D]';
+
+  return (
+    <div className="rounded-2xl bg-gradient-to-b from-[#161B22] to-[#1C2333] p-4 relative overflow-hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn('w-8 h-8 rounded-full flex items-center justify-center', accent.ring)}>{icon}</div>
+          <p className={cn('text-xs font-bold tracking-widest', accent.fg)}>{title}</p>
+        </div>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className="w-11 h-11 grid place-items-center rounded-xl hover:bg-white/5 active:scale-[0.98]"
+            aria-label="Ganti mode"
+          >
+            <span className="text-xl text-[#8B949E]">⊞</span>
+          </button>
+          {open && (
+            <div className="absolute right-0 top-12 w-[200px] rounded-xl bg-[#21262D] border border-[#30363D] shadow-xl p-2 z-50">
+              <p className="text-[11px] text-[#8B949E] px-2 py-1">Tampilkan:</p>
+              {modes.map((m, idx) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => {
+                    setModeIndex(idx);
+                    setOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/5 text-left"
+                >
+                  <span className={cn('w-2 h-2 rounded-full', idx === modeIndex ? accent.bg : 'bg-[#30363D]')} />
+                  <span className="text-sm text-[#F0F6FC]">{m.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[28px] leading-none font-extrabold text-[#F0F6FC] tracking-tight">{mode.hero.value}</p>
+          {mode.hero.trend && (
+            <span
+              className={cn(
+                'text-xs font-semibold px-2 py-0.5 rounded-md',
+                mode.hero.trend.positive ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+              )}
+            >
+              {mode.hero.trend.text}
+            </span>
+          )}
+        </div>
+        <p className="text-sm text-[#8B949E] mt-0.5">{mode.hero.label}</p>
+      </div>
+
+      <div className="mt-3 flex items-stretch gap-2">
+        {mode.metrics.slice(0, 3).map((m, i) => {
+          const tone =
+            m.tone === 'pos'
+              ? 'text-emerald-400'
+              : m.tone === 'neg'
+                ? 'text-red-400'
+                : m.tone === 'warn'
+                  ? 'text-amber-400'
+                  : 'text-[#8B949E]';
+          return (
+            <button
+              key={m.label}
+              type="button"
+              onClick={m.onClick}
+              className={cn(
+                'flex-1 min-w-0 rounded-xl px-2.5 py-2 text-left bg-black/20 hover:bg-white/5 active:scale-[0.99]'
+              )}
+            >
+              <p className="text-[11px] text-[#8B949E]">{m.label}</p>
+              <p className="text-base font-bold text-[#F0F6FC] mt-0.5 truncate">{m.value}</p>
+              {m.trend && <p className={cn('text-[11px] font-semibold mt-0.5', tone)}>{m.trend}</p>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          {modes.map((_, idx) => (
+            <div key={idx} className={dot(idx === modeIndex)} />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={onPickPeriod}
+          className="h-7 px-2.5 rounded-lg bg-[#21262D] border border-[#30363D] text-[11px] text-[#8B949E] flex items-center gap-1"
+        >
+          {periodLabel} <span className="text-[#8B949E]">▾</span>
+        </button>
       </div>
     </div>
   );
@@ -1321,7 +1631,7 @@ type SidebarNavItem =
 const Dashboard = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { currentUser, currentBusiness, currentTenant, businesses, setBusiness, setBusinesses, logout } = useAuthStore();
+  const { currentUser, currentCashier, currentBusiness, currentTenant, businesses, setBusiness, setBusinesses, logout } = useAuthStore();
   const [dateRange, setDateRange] = useState<'today' | '7days' | '30days'>('today');
   const [showBusinessSelector, setShowBusinessSelector] = useState(false);
   const [showAddBusiness, setShowAddBusiness] = useState(false);
@@ -1333,6 +1643,25 @@ const Dashboard = () => {
   const [notifBubbles, setNotifBubbles] = useState<{ id: string; title: string; detail: string }[]>([]);
   const seenNotifRef = useRef<Set<string>>(new Set());
   const [monthlyChartSeries, setMonthlyChartSeries] = useState<{ name: string; revenue: number; profit: number }[]>([]);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => getInitialThemeMode());
+  const currentThemeResolved = resolveTheme(themeMode);
+  const [perfMode, setPerfMode] = useState(0);
+  const [finMode, setFinMode] = useState(0);
+
+  useEffect(() => {
+    applyTheme(themeMode);
+    persistThemeMode(themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    if (themeMode !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyTheme('system');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themeMode]);
+
+  const toggleTheme = () => setThemeMode((prev) => (resolveTheme(prev) === 'dark' ? 'light' : 'dark'));
 
   const { start, end, prevStart, prevEnd } = useMemo(() => {
     const now = new Date();
@@ -1437,6 +1766,46 @@ const Dashboard = () => {
     [currentBusiness]
   );
 
+  const todayRange = useMemo(() => {
+    const s = new Date();
+    s.setHours(0, 0, 0, 0);
+    const e = new Date();
+    e.setHours(23, 59, 59, 999);
+    return { s, e };
+  }, []);
+
+  const bizTodayMap = useLiveQuery(
+    async () => {
+      const out: Record<string, { revenue: number; profit: number }> = {};
+      const biz = businesses ?? [];
+      if (biz.length === 0) return out;
+      for (const b of biz) {
+        if (!b.id) continue;
+        const txs = await db.transactions
+          .where('businessId')
+          .equals(b.id)
+          .filter((tx) => {
+            const d = new Date(tx.createdAt);
+            return d >= todayRange.s && d <= todayRange.e && tx.status === 'COMPLETED';
+          })
+          .toArray();
+        let revenue = 0;
+        let hpp = 0;
+        for (const tx of txs) {
+          revenue += tx.total;
+          const items = await db.transactionItems.where('transactionId').equals(tx.id!).toArray();
+          for (const it of items) {
+            const p = await db.products.get(it.productId);
+            if (p) hpp += p.hpp * it.quantity;
+          }
+        }
+        out[b.id] = { revenue, profit: revenue - hpp };
+      }
+      return out;
+    },
+    [businesses, todayRange.s.getTime(), todayRange.e.getTime()]
+  );
+
   const activeSessions = useLiveQuery(
     () =>
       currentBusiness
@@ -1518,6 +1887,20 @@ const Dashboard = () => {
   );
 
   const notifications = useMemo(() => {
+    const newestTx = (transactions ?? []).reduce((acc, tx) => {
+      if (!acc) return tx;
+      return new Date(tx.createdAt) > new Date(acc.createdAt) ? tx : acc;
+    }, undefined as (typeof transactions extends (infer U)[] ? U : never) | undefined);
+    const orderNotifs = newestTx
+      ? [
+          {
+            id: `order-${newestTx.id}`,
+            title: 'Orderan baru masuk',
+            detail: `${newestTx.invoiceNumber ?? 'INV'} · ${formatCurrency(newestTx.total)}`,
+            tone: 'info' as const,
+          },
+        ]
+      : [];
     const lowStockNotifs = (lowStockProducts ?? []).slice(0, 4).map((p) => ({
       id: `stock-${p.id}`,
       title: `Stok menipis: ${p.name}`,
@@ -1536,8 +1919,8 @@ const Dashboard = () => {
       detail: a.description,
       tone: 'info' as const,
     }));
-    return [...lowStockNotifs, ...debtNotifs, ...activityNotifs];
-  }, [lowStockProducts, upcomingDebts, recentActivities]);
+    return [...orderNotifs, ...lowStockNotifs, ...debtNotifs, ...activityNotifs];
+  }, [transactions, lowStockProducts, upcomingDebts, recentActivities]);
 
   useEffect(() => {
     if (!isNotificationOpen) return;
@@ -1885,19 +2268,29 @@ const Dashboard = () => {
   };
 
   // Sidebar items
+  const cashierCanViewReports = !!currentCashier?.canViewReports;
   const sidebarItems: SidebarNavItem[] = [
     { id: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transaksi', icon: ShoppingCart },
     { id: 'products', label: 'Produk', icon: Package },
     { id: 'members', label: 'Member', icon: UserPlus },
     { id: 'materials', label: 'Bahan Baku', icon: Boxes },
+    { id: 'store', label: 'Toko', icon: Store, href: currentBusiness?.id ? `/dashboard/store/${encodeURIComponent(currentBusiness.id)}` : '/dashboard' },
+    { id: 'opname', label: 'Stock Opname', icon: ClipboardList, href: '/dashboard/stock-opname' },
+    { id: 'tasks', label: 'Tugas', icon: ClipboardList, href: '/dashboard/tasks' },
     { id: 'finance', label: 'Keuangan', icon: Banknote, href: '/dashboard/finance' },
     { id: 'history', label: 'History', icon: History, href: '/dashboard/history' },
     { id: 'shifts', label: 'Shift', icon: CalendarDays, href: '/dashboard/shifts' },
     { id: 'reports', label: 'Laporan', icon: TrendingUp, href: '/dashboard/reports' },
     { id: 'settings', label: 'Pengaturan', icon: Settings, href: '/dashboard/settings' },
     { id: 'super-admin', label: 'Super Admin', icon: Shield, href: '/dashboard/super-admin' },
-  ];
+  ].filter((it) => {
+    // Cashier mode: restrict sensitive menus.
+    if (!currentCashier) return true;
+    if (it.id === 'reports') return cashierCanViewReports;
+    if (it.id === 'finance' || it.id === 'settings' || it.id === 'super-admin') return false;
+    return true;
+  });
 
   return (
     <div className="min-h-screen min-h-[100dvh] bg-gray-50/80 dark:bg-gray-900 w-full max-w-full min-w-0">
@@ -1911,17 +2304,27 @@ const Dashboard = () => {
           <Menu className="w-6 h-6" />
         </button>
         <h1 className="font-bold text-gray-900 dark:text-white">{currentBusiness?.name}</h1>
-        <SyncStatusChip />
-        <button
-          type="button"
-          onClick={() => setIsNotificationOpen((v) => !v)}
-          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 relative"
-        >
-          <Bell className="w-6 h-6" />
-          {notifications.length > 0 && (
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-          )}
-        </button>
+        <div className="flex items-center gap-1">
+          <SyncStatusChip />
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={`Tema: ${currentThemeResolved === 'dark' ? 'Dark' : 'Light'}`}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+          >
+            {currentThemeResolved === 'dark' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsNotificationOpen((v) => !v)}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 relative"
+          >
+            <Bell className="w-6 h-6" />
+            {notifications.length > 0 && (
+              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+            )}
+          </button>
+        </div>
       </header>
       {notifBubbles.length > 0 && (
         <div className="fixed top-16 right-3 z-[70] space-y-2 w-[min(86vw,320px)]">
@@ -2109,6 +2512,255 @@ const Dashboard = () => {
           {/* Dashboard Overview — OMNIFYI-aligned shell, POS data */}
           {activeTab === 'overview' && (
             <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto w-full min-w-0 max-w-full">
+              {/* Mobile: compact, data-dense dashboard */}
+              <div className="lg:hidden space-y-4">
+                <div className="h-10 flex items-center px-0.5">
+                  <p className="text-[13px] text-[#8B949E] truncate">
+                    Hai, {currentUser?.name?.split(' ')[0] ?? 'Owner'} ·{' '}
+                    {new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
+                    {new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                </div>
+
+                {(() => {
+                  const pendingCount = pipelineData.find((s) => s.status === 'PENDING')?.transactions.length ?? 0;
+                  const voidedCount = pipelineData.find((s) => s.status === 'VOIDED')?.transactions.length ?? 0;
+                  const soldHint = totalTransactions > 0 ? 'Aktif' : '—';
+
+                  const cards = [
+                    {
+                      id: 'perf',
+                      node: (
+                        <MobileSmartCard
+                          icon={<Wallet className="w-5 h-5 text-emerald-400" />}
+                          title="PERFORMA"
+                          accent={{ fg: 'text-emerald-400', ring: 'bg-emerald-500/20', bg: 'bg-emerald-400' }}
+                          modes={[
+                            {
+                              id: 'revprofit',
+                              label: 'Omzet & Profit',
+                              hero: {
+                                value: formatRpShort(totalRevenue),
+                                label: dateRange === 'today' ? 'Omzet Hari Ini' : dateRange === '7days' ? 'Omzet 7 Hari' : 'Omzet 30 Hari',
+                                trend:
+                                  revDeltaPct !== null
+                                    ? { text: `${revDeltaPct >= 0 ? '↑' : '↓'}${Math.abs(revDeltaPct).toFixed(1)}%`, positive: revDeltaPct >= 0 }
+                                    : undefined,
+                              },
+                              metrics: [
+                                { label: 'Profit', value: formatRpShort(grossProfit), trend: `${grossMarginPercent}%`, tone: 'pos', onClick: () => navigate('/dashboard/finance/laba-rugi') },
+                                { label: 'Produk', value: `${activeProducts}/${totalProducts}`, trend: soldHint, tone: 'muted', onClick: () => setActiveTab('products') },
+                                {
+                                  label: 'Trx',
+                                  value: String(totalTransactions),
+                                  trend: txDeltaPct !== null ? `${txDeltaPct >= 0 ? '↑' : '↓'}${Math.abs(txDeltaPct).toFixed(1)}%` : '—',
+                                  tone: txDeltaPct !== null ? (txDeltaPct >= 0 ? 'pos' : 'neg') : 'muted',
+                                  onClick: () => setActiveTab('transactions'),
+                                },
+                              ],
+                            },
+                            {
+                              id: 'productstock',
+                              label: 'Produk & Stok',
+                              hero: { value: `${activeProducts}`, label: 'Produk Aktif' },
+                              metrics: [
+                                { label: 'Katalog', value: `${activeProducts}/${totalProducts}`, tone: 'muted', onClick: () => setActiveTab('products') },
+                                { label: 'Stok kritis', value: String(lowStockCount), tone: lowStockCount > 0 ? 'warn' : 'pos', onClick: () => setActiveTab('products') },
+                                { label: 'Piutang', value: formatRpShort(totalReceivable), tone: receivableOverdueCount > 0 ? 'warn' : 'muted', onClick: () => navigate('/dashboard/finance/hutang-piutang') },
+                              ],
+                            },
+                            {
+                              id: 'txdetail',
+                              label: 'Transaksi Detail',
+                              hero: { value: String(totalTransactions), label: 'Transaksi Selesai' },
+                              metrics: [
+                                { label: 'Pending', value: String(pendingCount), tone: pendingCount > 0 ? 'warn' : 'pos', onClick: () => setActiveTab('transactions') },
+                                { label: 'Batal', value: String(voidedCount), tone: voidedCount > 0 ? 'neg' : 'pos', onClick: () => setActiveTab('transactions') },
+                                { label: 'Rata²', value: formatRpShort(avgTransaction), tone: 'muted', onClick: () => setActiveTab('transactions') },
+                              ],
+                            },
+                            {
+                              id: 'compare',
+                              label: 'Perbandingan',
+                              hero: { value: revDeltaPct !== null ? `${revDeltaPct >= 0 ? '↑' : '↓'}${Math.abs(revDeltaPct).toFixed(1)}%` : '—', label: 'vs periode sebelumnya' },
+                              metrics: [
+                                { label: 'Omzet ini', value: formatRpShort(totalRevenue), tone: 'muted' },
+                                { label: 'Omzet lalu', value: formatRpShort(prevRevenue), tone: 'muted' },
+                                { label: 'Selisih', value: formatRpShort(totalRevenue - prevRevenue), tone: totalRevenue - prevRevenue >= 0 ? 'pos' : 'neg' },
+                              ],
+                            },
+                          ]}
+                          modeIndex={perfMode}
+                          setModeIndex={setPerfMode}
+                          periodLabel={dateRange === 'today' ? 'Hari Ini' : dateRange === '7days' ? '7 Hari' : '30 Hari'}
+                          onPickPeriod={() => setDateRange((v) => (v === 'today' ? '7days' : v === '7days' ? '30days' : 'today'))}
+                        />
+                      ),
+                    },
+                    {
+                      id: 'fin',
+                      node: (
+                        <MobileSmartCard
+                          icon={<Banknote className="w-5 h-5 text-blue-300" />}
+                          title="KEUANGAN"
+                          accent={{ fg: 'text-blue-300', ring: 'bg-blue-500/20', bg: 'bg-blue-300' }}
+                          modes={[
+                            {
+                              id: 'cashflow',
+                              label: 'Ringkasan',
+                              hero: { value: formatRpShort(grossProfit), label: 'Laba kotor (range)' },
+                              metrics: [
+                                { label: 'Omzet', value: formatRpShort(totalRevenue), tone: 'muted', onClick: () => navigate('/dashboard/finance') },
+                                { label: 'Margin', value: `${grossMarginPercent}%`, tone: grossMarginPercent >= 50 ? 'pos' : grossMarginPercent >= 20 ? 'warn' : 'neg', onClick: () => navigate('/dashboard/finance/laba-rugi') },
+                                { label: 'Hari ini', value: formatRpShort(todayRevenueTotal), tone: 'muted', onClick: () => setActiveTab('transactions') },
+                              ],
+                            },
+                            {
+                              id: 'debts',
+                              label: 'Piutang & Hutang',
+                              hero: { value: formatRpShort(totalReceivable), label: 'Piutang Berjalan' },
+                              metrics: [
+                                { label: 'Piutang', value: formatRpShort(totalReceivable), tone: 'muted', onClick: () => navigate('/dashboard/finance/hutang-piutang') },
+                                { label: 'Overdue', value: String(receivableOverdueCount), tone: receivableOverdueCount > 0 ? 'neg' : 'pos', onClick: () => navigate('/dashboard/finance/hutang-piutang') },
+                                { label: 'Jatuh tempo', value: String((upcomingDebts ?? []).length), tone: (upcomingDebts ?? []).length > 0 ? 'warn' : 'muted', onClick: () => navigate('/dashboard/finance/hutang-piutang') },
+                              ],
+                            },
+                            {
+                              id: 'pl',
+                              label: 'Laba Rugi',
+                              hero: { value: formatRpShort(grossProfit), label: 'Laba kotor (range)' },
+                              metrics: [
+                                { label: 'Omzet', value: formatRpShort(totalRevenue), tone: 'muted', onClick: () => navigate('/dashboard/finance/laba-rugi') },
+                                { label: 'Piutang', value: formatRpShort(totalReceivable), tone: 'muted', onClick: () => navigate('/dashboard/finance/hutang-piutang') },
+                                { label: 'Stok kritis', value: String(lowStockCount), tone: lowStockCount > 0 ? 'warn' : 'pos', onClick: () => setActiveTab('products') },
+                              ],
+                            },
+                            {
+                              id: 'assets',
+                              label: 'Aset (proxy)',
+                              hero: { value: formatRpShort(totalRevenue + totalReceivable), label: 'Omzet + Piutang' },
+                              metrics: [
+                                { label: 'Omzet', value: formatRpShort(totalRevenue), tone: 'muted' },
+                                { label: 'Piutang', value: formatRpShort(totalReceivable), tone: 'muted' },
+                                { label: 'Trend', value: revDeltaPct !== null ? `${revDeltaPct >= 0 ? '+' : ''}${revDeltaPct.toFixed(1)}%` : '—', tone: revDeltaPct !== null ? (revDeltaPct >= 0 ? 'pos' : 'neg') : 'muted' },
+                              ],
+                            },
+                          ]}
+                          modeIndex={finMode}
+                          setModeIndex={setFinMode}
+                          periodLabel={dateRange === 'today' ? 'Hari Ini' : dateRange === '7days' ? '7 Hari' : '30 Hari'}
+                          onPickPeriod={() => setDateRange((v) => (v === 'today' ? '7days' : v === '7days' ? '30days' : 'today'))}
+                        />
+                      ),
+                    },
+                  ] as const;
+
+                  return (
+                    <div className="flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1">
+                      {cards.map((c) => (
+                        <div key={c.id} className="snap-center w-[calc(100vw-2rem)] flex-shrink-0">
+                          {c.node}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                <div className="mt-2 grid grid-cols-6 gap-2">
+                  {[
+                    { id: 'pos', label: 'POS', icon: ShoppingCart, tone: 'text-emerald-400', onClick: () => setActiveTab('transactions') },
+                    { id: 'pl', label: 'L/R', icon: BarChart3, tone: 'text-blue-300', onClick: () => navigate('/dashboard/finance/laba-rugi') },
+                    { id: 'stock', label: 'Stok', icon: Package, tone: 'text-purple-300', onClick: () => setActiveTab('products') },
+                    { id: 'cash', label: 'Kas', icon: Wallet, tone: 'text-emerald-300', onClick: () => navigate('/dashboard/finance/cashflow') },
+                    { id: 'todo', label: 'ToDo', icon: ClipboardList, tone: 'text-amber-300', onClick: () => navigate('/dashboard/settings') },
+                    { id: 'more', label: 'More', icon: Menu, tone: 'text-[#8B949E]', onClick: () => setIsMobileMenuOpen(true) },
+                  ].map((s) => (
+                    <button key={s.id} type="button" onClick={s.onClick} className="flex flex-col items-center gap-1 active:scale-95">
+                      <div className="w-11 h-11 rounded-xl bg-[#161B22] border border-[#30363D] grid place-items-center">
+                        <s.icon className={cn('w-5 h-5', s.tone)} />
+                      </div>
+                      <span className="text-[10px] font-medium text-[#8B949E]">{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="pt-2">
+                  <div className="flex items-center justify-between px-0.5">
+                    <p className="text-base font-semibold text-[#F0F6FC]">Gerai Kamu</p>
+                    <button type="button" onClick={() => setShowAddBusiness(true)} className="text-sm font-semibold text-emerald-400">
+                      + Tambah Gerai
+                    </button>
+                  </div>
+                  <div className="mt-3 flex gap-3 overflow-x-auto scrollbar-hide snap-x snap-mandatory pb-1">
+                    {businesses.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => {
+                          setBusiness(b);
+                          navigate(`/dashboard/store/${encodeURIComponent(b.id!)}`);
+                        }}
+                        className={cn(
+                          'snap-start w-[170px] h-[130px] flex-shrink-0 rounded-2xl bg-[#161B22] p-3 text-left overflow-hidden',
+                          b.isActive !== false
+                            ? 'shadow-[0_8px_22px_rgba(16,185,129,0.20)]'
+                            : 'shadow-[0_8px_22px_rgba(239,68,68,0.20)]',
+                          currentBusiness?.id === b.id && 'ring-2 ring-white/15'
+                        )}
+                      >
+                        <p className="text-sm font-semibold text-[#F0F6FC] truncate">{b.name}</p>
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <span className={cn('w-2 h-2 rounded-full flex-shrink-0', b.isActive !== false ? 'bg-emerald-400' : 'bg-red-400')} />
+                          <span className={cn('text-[11px] font-semibold truncate', b.isActive !== false ? 'text-emerald-300' : 'text-red-300')}>
+                            {b.isActive !== false ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
+                        <div className="mt-3 pt-2 border-t border-white/10">
+                          {(() => {
+                            const m = b.id ? bizTodayMap?.[b.id] : undefined;
+                            const rev = m?.revenue ?? 0;
+                            const prof = m?.profit ?? 0;
+                            return (
+                              <>
+                                <p className="text-[10px] text-[#8B949E]">Omzet/Profit</p>
+                                <p className="text-[12px] font-bold text-[#F0F6FC] tabular-nums truncate">
+                                  {formatCurrency(rev)}/{formatCurrency(prof)}
+                                </p>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setShowAddBusiness(true)}
+                      className="snap-start w-[160px] h-[180px] flex-shrink-0 rounded-2xl border border-dashed border-[#30363D] p-4 grid place-items-center text-[#8B949E]"
+                    >
+                      <div className="w-10 h-10 rounded-xl border border-[#30363D] grid place-items-center">
+                        <Plus className="w-5 h-5" />
+                      </div>
+                      <p className="mt-2 text-sm font-semibold">Tambah Gerai</p>
+                    </button>
+                  </div>
+                </div>
+
+                <DashboardAttentionWidget
+                  lowStockCount={lowStockCount}
+                  upcomingDebts={upcomingDebts ?? []}
+                  receivableOverdueCount={receivableOverdueCount}
+                  debtOverdueCount={debtOverdueCount}
+                  formatRp={formatCurrency}
+                  onNavigate={(path) => navigate(path)}
+                />
+
+                <div className="space-y-4">
+                  <DashboardChartSection series={monthlyChartSeries} formatRp={formatRpShort} usingSample={monthlyChartSeries.length < 2} />
+                </div>
+              </div>
+
+              {/* Desktop: keep existing layout */}
+              <div className="hidden lg:block space-y-5">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fade-in-up">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -2154,13 +2806,22 @@ const Dashboard = () => {
                   <span className="hidden lg:inline-flex">
                     <SyncStatusChip />
                   </span>
+                  <button
+                    type="button"
+                    onClick={toggleTheme}
+                    title={`Tema: ${currentThemeResolved === 'dark' ? 'Dark' : 'Light'}`}
+                    className="inline-flex items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-sm rounded-xl px-3 py-2 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200"
+                  >
+                    {currentThemeResolved === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                    <span className="hidden sm:inline">{currentThemeResolved === 'dark' ? 'Dark' : 'Light'}</span>
+                  </button>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 min-w-0 max-w-full">
                 <OmnifyiStatCard
                   title="Omzet (periode)"
-                  value={formatRpShort(totalRevenue)}
+                  value={formatCurrency(totalRevenue)}
                   trend={
                     revDeltaPct !== null
                       ? `${revDeltaPct >= 0 ? '+' : ''}${revDeltaPct.toFixed(1)}% vs periode sebelumnya`
@@ -2178,7 +2839,7 @@ const Dashboard = () => {
                         : '30 hari terakhir'
                   }
                   helper="total masuk"
-                  subInfo={`Margin kotor ${grossMarginPercent}% · Laba kotor ${formatRpShort(grossProfit)}`}
+                  subInfo={`Margin kotor ${grossMarginPercent}% · Laba kotor ${formatCurrency(grossProfit)}`}
                 />
                 <OmnifyiStatCard
                   title="Transaksi selesai"
@@ -2194,7 +2855,7 @@ const Dashboard = () => {
                   d={2}
                   period="Dalam rentang filter"
                   helper="transaksi"
-                  subInfo={`Rata-rata keranjang ${formatRpShort(avgTransaction)}`}
+                  subInfo={`Rata-rata keranjang ${formatCurrency(avgTransaction)}`}
                 />
                 <OmnifyiStatCard
                   title="Produk aktif"
@@ -2210,7 +2871,7 @@ const Dashboard = () => {
                 />
                 <OmnifyiStatCard
                   title="Piutang berjalan"
-                  value={formatRpShort(totalReceivable)}
+                  value={formatCurrency(totalReceivable)}
                   trend={
                     receivableOverdueCount > 0 ? `${receivableOverdueCount} lewat jatuh tempo` : 'Tidak overdue'
                   }
@@ -2402,6 +3063,7 @@ const Dashboard = () => {
                   </div>
                 </div>
               </div>
+              </div>
             </div>
           )}
 
@@ -2534,18 +3196,44 @@ const TodoItem = ({ todo }: { todo: any }) => {
 // MAIN APP
 // ============================================
 
-type AppScreen = 'dashboard' | 'pos-login' | 'pos';
+type AppScreen = 'dashboard' | 'pos-login' | 'pos' | 'cashier-dashboard';
 
 const App = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [screen, setScreen] = useState<AppScreen>('dashboard');
-  const { currentUser, currentCashier, currentBusiness, logoutCashier, setBusiness } = useAuthStore();
+  const { currentUser, currentTenant, currentCashier, currentBusiness, businesses, logoutCashier, setBusiness, setAuth, logout } = useAuthStore();
   const location = useLocation();
   const processSyncQueue = useSyncStore((s) => s.processSyncQueue);
+
+  // When switching cashier, never close the store-day. Just clear cashier session state.
+  const handleLogoutCashier = () => {
+    logoutCashier();
+    setScreen(currentBusiness?.id ? 'pos-login' : 'dashboard');
+  };
 
   useEffect(() => {
     const init = async () => {
       await seedInitialData();
+      installSyncHooks();
+      // Restore Supabase session -> ensure tenant/business exists -> ensure local core rows exist.
+      try {
+        if (!supabase) throw new Error('supabase_disabled');
+        const { data } = await supabase.auth.getSession();
+        const u = data.session?.user;
+        if (u?.id && u.email) {
+          const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+          await ensureLocalCoreRows({
+            userId: u.id,
+            email: u.email,
+            tenantId,
+            businessId,
+            businessName: 'Usaha Baru',
+          });
+          await pullAllChangesForTenant(tenantId);
+        }
+      } catch {
+        // Ignore: app can still run in demo/local mode.
+      }
       const params = new URLSearchParams(window.location.search);
       const mode = params.get('mode');
       const businessId = params.get('business');
@@ -2568,17 +3256,35 @@ const App = () => {
     return () => clearInterval(t);
   }, [processSyncQueue]);
 
+  // Guard against partial persisted auth state (user exists but business/tenant missing),
+  // which can crash dashboard pages that assume currentBusiness is set.
+  useEffect(() => {
+    const fixAuth = async () => {
+      if (!currentUser?.id) return;
+      if (currentBusiness?.id && currentTenant?.id && businesses.length > 0) return;
+      try {
+        const tenant = currentTenant?.id
+          ? await db.tenants.get(currentTenant.id)
+          : await db.tenants.where('ownerId').equals(currentUser.id).first();
+        if (!tenant?.id) return;
+        const bizList = await db.businesses.where('tenantId').equals(tenant.id).toArray();
+        const activeBiz = bizList[0];
+        if (!activeBiz?.id) return;
+        setAuth(currentUser, tenant, activeBiz, bizList);
+      } catch {
+        // If local DB is inconsistent, log out to avoid blank screen loop.
+        logout();
+      }
+    };
+    void fixAuth();
+  }, [currentUser?.id, currentBusiness?.id, currentTenant?.id, businesses.length, setAuth, logout, currentTenant, currentUser, currentBusiness, businesses]);
+
   // When cashier logs in, go to POS
   useEffect(() => {
     if (currentCashier) {
       setScreen('pos');
     }
   }, [currentCashier]);
-
-  const handleLogoutCashier = () => {
-    logoutCashier();
-    setScreen('dashboard');
-  };
 
   const handleGoToPOS = () => {
     if (currentCashier) {
@@ -2620,71 +3326,155 @@ const App = () => {
 
   // Show screens based on state
   if (screen === 'pos-login' && currentBusiness) {
-    return <CashierLoginScreen />;
+    return (
+      <AppErrorBoundary>
+        <CashierLoginScreen
+          onBackToDashboard={() => setScreen('dashboard')}
+          onGoToCashierDashboard={() => setScreen('cashier-dashboard')}
+        />
+      </AppErrorBoundary>
+    );
   }
 
   // Cashier logged in - show POS
   if (screen === 'pos' && currentCashier) {
-    return <POSScreen onLogout={handleLogoutCashier} />;
+    return (
+      <AppErrorBoundary>
+        <POSScreen
+          onLogout={handleLogoutCashier}
+          onGoToCashierDashboard={() => setScreen('cashier-dashboard')}
+        />
+      </AppErrorBoundary>
+    );
+  }
+
+  if (screen === 'cashier-dashboard' && currentCashier) {
+    return (
+      <AppErrorBoundary>
+        <CashierDashboardScreen
+          onGoToPOS={() => setScreen('pos')}
+          onSwitchCashier={handleLogoutCashier}
+        />
+      </AppErrorBoundary>
+    );
   }
 
   // Not logged in
   if (!currentUser) {
     if (location.pathname === '/admin') {
-      return <LandingAdminPage />;
+      return (
+        <AppErrorBoundary>
+          <LandingAdminPage />
+        </AppErrorBoundary>
+      );
     }
-    return <MarketingPage />;
+    return (
+      <AppErrorBoundary>
+        <LoginLandingPage />
+      </AppErrorBoundary>
+    );
   }
 
   if (location.pathname === '/admin') {
-    return <LandingAdminPage />;
+    return (
+      <AppErrorBoundary>
+        <LandingAdminPage />
+      </AppErrorBoundary>
+    );
   }
 
   return (
-    <>
-      <PwaInstallBanner />
-      <Routes>
-      <Route path="/dashboard/finance" element={<FinanceWithPosButton />}>
-        <Route index element={<Navigate to="cashflow" replace />} />
-        <Route path="cashflow" element={<FinanceCashflowTab />} />
-        <Route path="hutang-piutang" element={<FinanceDebtTab />} />
-        <Route path="laba-rugi" element={<FinancePLTab />} />
-        <Route path="laba-ditahan" element={<FinanceRetainedTab />} />
-        <Route path="akun" element={<FinanceAccountsTab />} />
-        <Route path="*" element={<Navigate to="cashflow" replace />} />
-      </Route>
-      <Route
-        path="/dashboard"
-        element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<Dashboard />} />}
-      />
-      <Route
-        path="/dashboard/history"
-        element={
-          <DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<HistoryPage />} />
-        }
-      />
-      <Route
-        path="/dashboard/shifts"
-        element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<ShiftsPage />} />}
-      />
-      <Route
-        path="/dashboard/settings"
-        element={
-          <DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<SettingsPage />} />
-        }
-      />
-      <Route
-        path="/dashboard/reports"
-        element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<ReportsPage />} />}
-      />
-      <Route
-        path="/dashboard/super-admin"
-        element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<SuperAdminPage />} />}
-      />
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
-    </>
+    <AppErrorBoundary>
+      <>
+        <PwaInstallBanner />
+        <Routes>
+          <Route path="/dashboard/finance" element={<FinanceWithPosButton />}>
+            <Route index element={<Navigate to="cashflow" replace />} />
+            <Route path="cashflow" element={<FinanceCashflowTab />} />
+            <Route path="hutang-piutang" element={<FinanceDebtTab />} />
+            <Route path="laba-rugi" element={<FinancePLTab />} />
+            <Route path="laba-ditahan" element={<FinanceRetainedTab />} />
+            <Route path="akun" element={<FinanceAccountsTab />} />
+            <Route path="*" element={<Navigate to="cashflow" replace />} />
+          </Route>
+          <Route
+            path="/dashboard/store/:storeId"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StorePage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/shifts"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StoreShiftsPage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/roles"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StoreRolesPage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/staff"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StoreStaffPage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/attendance"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StoreAttendancePage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/payroll"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StorePayrollPage />} />}
+          />
+          <Route
+            path="/dashboard/store/:storeId/settings"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StoreBusinessSettingsPage />} />}
+          />
+          <Route
+            path="/dashboard"
+            element={<Dashboard />}
+          />
+          <Route
+            path="/dashboard/history"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<HistoryPage />} />}
+          />
+          <Route
+            path="/dashboard/shifts"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<ShiftsPage />} />}
+          />
+          <Route
+            path="/dashboard/stock-opname"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<StockOpnamePage />} />}
+          />
+          <Route
+            path="/dashboard/tasks"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<TasksKanbanPage />} />}
+          />
+          <Route
+            path="/dashboard/settings"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<SettingsPage />} />}
+          />
+          <Route
+            path="/dashboard/reports"
+            element={
+              currentCashier && !currentCashier.canViewReports ? (
+                <DashboardWithPOS
+                  onGoToPOS={handleGoToPOS}
+                  screenChild={
+                    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-8 text-center">
+                      <p className="text-sm text-gray-500">Akses laporan tidak diizinkan untuk kasir ini.</p>
+                    </div>
+                  }
+                />
+              ) : (
+                <DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<ReportsPage />} />
+              )
+            }
+          />
+          <Route
+            path="/dashboard/super-admin"
+            element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<SuperAdminPage />} />}
+          />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </>
+    </AppErrorBoundary>
   );
 };
 
@@ -2696,9 +3486,116 @@ const DashboardWithPOS = ({
   onGoToPOS: () => void;
   screenChild: React.ReactNode;
 }) => {
+  const { currentUser, currentBusiness, currentCashier } = useAuthStore();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const cashierCanViewReports = !!currentCashier?.canViewReports;
+
+  const sidebarItems: SidebarNavItem[] = [
+    { id: 'overview', label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    { id: 'transactions', label: 'Transaksi', icon: ShoppingCart, href: '/dashboard' },
+    { id: 'products', label: 'Produk', icon: Package, href: '/dashboard' },
+    { id: 'members', label: 'Member', icon: UserPlus, href: '/dashboard' },
+    { id: 'materials', label: 'Bahan Baku', icon: Boxes, href: '/dashboard' },
+    { id: 'store', label: 'Toko', icon: Store, href: currentBusiness?.id ? `/dashboard/store/${encodeURIComponent(currentBusiness.id)}` : '/dashboard' },
+    { id: 'opname', label: 'Stock Opname', icon: ClipboardList, href: '/dashboard/stock-opname' },
+    { id: 'tasks', label: 'Tugas', icon: ClipboardList, href: '/dashboard/tasks' },
+    { id: 'finance', label: 'Keuangan', icon: Banknote, href: '/dashboard/finance' },
+    { id: 'history', label: 'History', icon: History, href: '/dashboard/history' },
+    { id: 'shifts', label: 'Shift', icon: CalendarDays, href: '/dashboard/shifts' },
+    { id: 'reports', label: 'Laporan', icon: TrendingUp, href: '/dashboard/reports' },
+    { id: 'settings', label: 'Pengaturan', icon: Settings, href: '/dashboard/settings' },
+    { id: 'super-admin', label: 'Super Admin', icon: Shield, href: '/dashboard/super-admin' },
+  ].filter((it) => {
+    if (!currentCashier) return true;
+    if (it.id === 'reports') return cashierCanViewReports;
+    if (it.id === 'finance' || it.id === 'settings' || it.id === 'super-admin') return false;
+    return true;
+  });
+
   return (
-    <div className="relative">
-      {screenChild}
+    <div className="relative min-h-screen min-h-[100dvh] bg-gray-50/80 dark:bg-gray-900 w-full max-w-full min-w-0">
+      {/* Mobile Header */}
+      <header className="lg:hidden bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 
+                       px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+        >
+          <Menu className="w-6 h-6" />
+        </button>
+        <button type="button" onClick={() => navigate('/dashboard')} className="font-bold text-gray-900 dark:text-white">
+          {currentBusiness?.name || 'Omnifyi POS'}
+        </button>
+        <SyncStatusChip />
+      </header>
+
+      <div className="flex min-w-0 w-full max-w-full">
+        {/* Sidebar */}
+        <aside
+          className={cn(
+            "fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-gray-800 border-r border-gray-200",
+            "dark:border-gray-700 transform transition-transform duration-200 lg:translate-x-0 lg:static",
+            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          )}
+        >
+          <div className="flex flex-col h-full overflow-y-auto">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-gradient-to-br from-brand-500 to-brand-800 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-brand-500/25">
+                  <Store className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h1 className="font-bold text-gray-900 dark:text-white tracking-tight">Omnifyi POS</h1>
+                  <p className="text-[10px] text-brand-600 font-medium">Retail Dashboard</p>
+                </div>
+              </div>
+            </div>
+
+            <nav className="flex-1 min-h-0 p-4 space-y-1">
+              {sidebarItems.map((item) => {
+                const routeActive = item.href && location.pathname.startsWith(item.href);
+                const className = cn(
+                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left font-medium',
+                  routeActive
+                    ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-md shadow-brand-500/20'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                );
+                return (
+                  <Link key={item.id} to={item.href || '/dashboard'} onClick={() => setIsMobileMenuOpen(false)} className={className}>
+                    <item.icon className="w-5 h-5" />
+                    <span className="font-medium">{item.label}</span>
+                  </Link>
+                );
+              })}
+            </nav>
+
+            {currentUser ? (
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-700">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-brand-400 to-brand-700 flex items-center justify-center text-white font-bold">
+                    {currentUser?.name?.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{currentUser?.name}</p>
+                    <p className="text-xs text-gray-500 truncate">{currentUser?.email}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </aside>
+
+        {isMobileMenuOpen && (
+          <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+        )}
+
+        <main className="flex-1 min-w-0 max-w-full min-h-screen lg:min-h-0 pb-36 lg:pb-0">
+          {screenChild}
+        </main>
+      </div>
+
       <button
         type="button"
         onClick={onGoToPOS}

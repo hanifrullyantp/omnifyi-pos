@@ -213,9 +213,9 @@ export function MaterialsPage({ tenantId, businessId }: MaterialsPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-sm md:text-base text-gray-900 dark:text-gray-100 pb-24 lg:pb-4 w-full min-w-0 max-w-full overflow-x-clip">
+    <div className="materials-theme min-h-screen bg-[var(--app-bg)] text-sm md:text-base text-[var(--app-text)] pb-24 lg:pb-4 w-full min-w-0 max-w-full overflow-x-clip">
       {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-10">
+      <div className="bg-[var(--app-surface)] border-b border-[var(--app-border)] sticky top-0 z-10">
         <div className="p-4">
           <div className="flex items-center justify-between mb-4">
             <div>

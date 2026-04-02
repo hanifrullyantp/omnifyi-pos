@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { LogOut, User, Clock, Wifi, WifiOff, Receipt, Store, Settings2 } from 'lucide-react';
-import { Category, db } from '../../lib/db';
+import { LogOut, User, Clock, Wifi, WifiOff, Receipt, Store, Settings2, X } from 'lucide-react';
+import { Category, db, type StoreDay } from '../../lib/db';
 import { useAuthStore, useCartStore, useUIStore } from '../../lib/store';
 import { cn } from '../../lib/utils';
 import ProductGrid from './ProductGrid';
@@ -13,14 +13,36 @@ import { PosSettingsModal } from './PosSettingsModal';
 
 interface POSScreenProps {
   onLogout: () => void;
+  onGoToCashierDashboard: () => void;
 }
 
-export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
+export const POSScreen: React.FC<POSScreenProps> = ({ onLogout, onGoToCashierDashboard }) => {
   const { currentBusiness, currentCashier } = useAuthStore();
   const { items, addItem, getSubtotal, getTotalDiscount } = useCartStore();
   const { isOnline, setOnline } = useUIStore();
   
   const bid = currentBusiness?.id;
+  const todayYmd = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  }, []);
+
+  const storeDay = useLiveQuery(
+    () =>
+      bid
+        ? db.storeDays
+            .where('businessId')
+            .equals(bid)
+            .filter((sd) => sd.dateYmd === todayYmd)
+            .first()
+        : Promise.resolve(undefined as unknown as StoreDay | undefined),
+    [bid, todayYmd]
+  );
+  const isStoreOpen = !!storeDay && storeDay.status === 'OPEN';
+
   const productsRaw = useLiveQuery(
     () => (bid ? db.products.where('businessId').equals(bid).toArray() : Promise.resolve([])),
     [bid]
@@ -48,6 +70,18 @@ export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
   const [showPosSettings, setShowPosSettings] = useState(false);
   const [checkoutLockUntil, setCheckoutLockUntil] = useState(0);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [openStoreOpen, setOpenStoreOpen] = useState(false);
+  const [openingCash, setOpeningCash] = useState('');
+  // Close store moved to cashier dashboard (kasir yang menutup toko).
+  const [busyStoreOp, setBusyStoreOp] = useState(false);
+  const [storeOpError, setStoreOpError] = useState('');
+
+  useEffect(() => {
+    if (!bid) return;
+    if (storeDay === undefined) return;
+    if (!storeDay) setOpenStoreOpen(true);
+    if (storeDay && storeDay.status === 'CLOSED') setOpenStoreOpen(false);
+  }, [bid, storeDay]);
 
   // Online/Offline detection
   useEffect(() => {
@@ -103,6 +137,7 @@ export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
 
   const handleBarcodeScan = useCallback(
     (code: string) => {
+      if (!isStoreOpen) return;
       const product = products.find((p) => p.barcode === code || p.sku === code);
       if (product) {
         const ok = addItem(product);
@@ -111,15 +146,44 @@ export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
         alert(`Produk tidak ditemukan: ${code}`);
       }
     },
-    [products, addItem]
+    [products, addItem, isStoreOpen]
   );
 
   const handleCheckout = () => {
+    if (!isStoreOpen) return;
     if (Date.now() < checkoutLockUntil) return;
     if (items.length > 0 && !showPayment) {
       setShowPayment(true);
     }
   };
+
+  const openStore = async () => {
+    if (!bid || !currentBusiness?.tenantId || !currentCashier?.id) return;
+    setBusyStoreOp(true);
+    setStoreOpError('');
+    try {
+      const cash = Number(String(openingCash).replace(/\./g, '')) || 0;
+      if (!Number.isFinite(cash) || cash < 0) throw new Error('Modal awal tidak valid.');
+      await db.storeDays.add({
+        id: crypto.randomUUID(),
+        tenantId: currentBusiness.tenantId,
+        businessId: bid,
+        dateYmd: todayYmd,
+        status: 'OPEN',
+        openedAt: new Date(),
+        openedByOwnerId: currentCashier.id,
+        openingCash: cash,
+        updatedAt: new Date(),
+      });
+      setOpenStoreOpen(false);
+      setOpeningCash('');
+    } catch (e: any) {
+      setStoreOpError(e?.message || 'Gagal buka toko.');
+    } finally {
+      setBusyStoreOp(false);
+    }
+  };
+
 
   // Calculate totals
   const subtotal = getSubtotal();
@@ -201,6 +265,16 @@ export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
             <Settings2 className="w-5 h-5" />
           </button>
 
+          <button
+            type="button"
+            onClick={onGoToCashierDashboard}
+            className="hidden md:inline-flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Dashboard Kasir"
+          >
+            <Store className="w-4 h-4" />
+            Dashboard Kasir
+          </button>
+
           {/* Logout */}
           <button
             onClick={onLogout}
@@ -263,6 +337,52 @@ export const POSScreen: React.FC<POSScreenProps> = ({ onLogout }) => {
       />
 
       <PosSettingsModal isOpen={showPosSettings} onClose={() => setShowPosSettings(false)} />
+
+      {/* Open Store Gate */}
+      {openStoreOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">Buka Toko</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Masukkan modal uang receh untuk kembalian hari ini.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800"
+                title="Ganti kasir / keluar"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="mt-5">
+              <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Modal awal (Rp)</label>
+              <input
+                inputMode="numeric"
+                value={openingCash}
+                onChange={(e) => setOpeningCash(e.target.value)}
+                placeholder="0"
+                className="mt-2 w-full px-4 py-3 rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-right text-lg font-bold"
+              />
+              {storeOpError && <p className="mt-2 text-sm text-red-600">{storeOpError}</p>}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void openStore()}
+              disabled={busyStoreOp}
+              className="mt-6 w-full py-3 rounded-2xl bg-brand-600 text-white font-bold hover:bg-brand-700 disabled:opacity-50"
+            >
+              {busyStoreOp ? 'Memproses...' : 'Mulai Jualan'}
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

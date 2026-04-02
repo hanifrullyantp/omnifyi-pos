@@ -50,13 +50,23 @@ export async function connectBluetoothPrinter(): Promise<void> {
     throw new Error('Web Bluetooth tidak tersedia (gunakan Chrome/Edge, HTTPS, dan hidupkan Bluetooth).');
   }
 
-  const device = await navigator.bluetooth.requestDevice({
-    acceptAllDevices: true,
-    optionalServices: [
-      COMMON_UART.nordic.service,
-      COMMON_UART.feitianlike.service,
-    ],
-  });
+  let device: BluetoothDevice;
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [COMMON_UART.nordic.service, COMMON_UART.feitianlike.service],
+    });
+  } catch (e) {
+    const anyErr = e as { name?: string; message?: string } | undefined;
+    const n = anyErr?.name || '';
+    if (n === 'NotFoundError') {
+      throw new Error('Tidak ada perangkat dipilih. Pastikan printer menyala dan bisa dipair, lalu coba lagi.');
+    }
+    if (n === 'NotAllowedError' || n === 'SecurityError') {
+      throw new Error('Izin Bluetooth ditolak. Izinkan Bluetooth untuk situs ini lalu coba lagi.');
+    }
+    throw new Error(anyErr?.message || 'Gagal membuka dialog Bluetooth. Coba ulang di Chrome/Edge.');
+  }
 
   const server = await device.gatt?.connect();
   if (!server) throw new Error('Gagal menyambung GATT.');

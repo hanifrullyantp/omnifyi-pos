@@ -6,7 +6,7 @@ import {
   Check, Printer, Share2, Plus,
   ArrowLeft, User, MessageSquare
 } from 'lucide-react';
-import { PaymentMethod, Transaction, TransactionItem, db } from '../../lib/db';
+import { PaymentMethod, Transaction, TransactionItem, db, type PaymentManualAccount } from '../../lib/db';
 import { useCartStore, useAuthStore, useTodayTransactionsStore, useSyncStore } from '../../lib/store';
 import { cn, formatCurrency } from '../../lib/utils';
 import { applySaleStockDeduction } from '../../lib/posStockLedger';
@@ -24,6 +24,13 @@ interface PaymentModalProps {
 }
 
 type PaymentStep = 'method' | 'amount' | 'success';
+
+type QrisPaymentState =
+  | { phase: 'idle' }
+  | { phase: 'creating' }
+  | { phase: 'pending'; orderId: string; transactionId?: string | null; qrUrl?: string | null; qrString?: string | null }
+  | { phase: 'paid'; orderId: string; transactionId?: string | null }
+  | { phase: 'failed'; message: string };
 
 const paymentMethods: { id: PaymentMethod; label: string; icon: React.ReactNode; color: string }[] = [
   { id: 'CASH', label: 'Tunai', icon: <Banknote className="w-6 h-6" />, color: 'bg-green-500' },
@@ -47,12 +54,42 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [notes, setNotes] = useState('');
   const [transaction, setTransaction] = useState<Transaction | null>(null);
+  const [completedLineItems, setCompletedLineItems] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [qris, setQris] = useState<QrisPaymentState>({ phase: 'idle' });
+  const [manualAccounts, setManualAccounts] = useState<PaymentManualAccount[]>([]);
+  const [selectedManualAccountId, setSelectedManualAccountId] = useState<string>('');
+  const [manualProofDataUrl, setManualProofDataUrl] = useState<string>('');
+  const [confirmSeenProof, setConfirmSeenProof] = useState(false);
+  const [confirmAmountOk, setConfirmAmountOk] = useState(false);
 
   const { items, clearCart } = useCartStore();
   const { currentBusiness, currentTenant, currentCashier } = useAuthStore();
   const { addTransaction } = useTodayTransactionsStore();
   const addPendingSync = useSyncStore((s) => s.addPendingSync);
+
+  const copyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = value;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '-9999px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {
+        return false;
+      }
+    }
+  };
 
   // Reset state when modal opens
   useEffect(() => {
@@ -64,8 +101,87 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       setNotes('');
       setTransaction(null);
       setCompletedLineItems([]);
+      setQris({ phase: 'idle' });
+      setSelectedManualAccountId('');
+      setManualProofDataUrl('');
+      setConfirmSeenProof(false);
+      setConfirmAmountOk(false);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!currentBusiness?.id) return;
+    if (!currentBusiness.manualPaymentEnabled) {
+      setManualAccounts([]);
+      return;
+    }
+    void db.paymentManualAccounts
+      .where('businessId')
+      .equals(currentBusiness.id)
+      .toArray()
+      .then((xs) => xs.filter((x) => x.isActive).sort((a, b) => a.label.localeCompare(b.label)))
+      .then((xs) => {
+        setManualAccounts(xs);
+        if (!selectedManualAccountId && xs[0]?.id) setSelectedManualAccountId(xs[0].id);
+      });
+  }, [isOpen, currentBusiness?.id, currentBusiness?.manualPaymentEnabled, selectedManualAccountId]);
+
+  const selectedManualAccount = manualAccounts.find((a) => a.id === selectedManualAccountId) ?? null;
+
+  const manualProofRequired = !!currentBusiness?.manualPaymentEnabled && !!currentBusiness?.manualPaymentProofRequired;
+
+  const canConfirmManualNonCash =
+    !!selectedManualAccountId &&
+    confirmSeenProof &&
+    confirmAmountOk &&
+    (!manualProofRequired || !!manualProofDataUrl);
+
+  async function onPickProofFile(file: File | null) {
+    if (!file) return;
+    const reader = new FileReader();
+    const p = new Promise<string>((resolve, reject) => {
+      reader.onerror = () => reject(new Error('Gagal baca file.'));
+      reader.onload = () => resolve(String(reader.result ?? ''));
+    });
+    reader.readAsDataURL(file);
+    const dataUrl = await p;
+    setManualProofDataUrl(dataUrl);
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedMethod !== 'QRIS') return;
+    if (qris.phase !== 'pending') return;
+    let cancelled = false;
+    const run = async () => {
+      const start = Date.now();
+      while (!cancelled && Date.now() - start < 5 * 60 * 1000) {
+        try {
+          const res = await fetch(`/api/pos/qris/status?orderId=${encodeURIComponent(qris.orderId)}`);
+          if (res.ok) {
+            const data = (await res.json()) as { paid: boolean; transaction_status?: string };
+            if (data.paid) {
+              setQris({ phase: 'paid', orderId: qris.orderId, transactionId: qris.transactionId ?? null });
+              return;
+            }
+            if (String(data.transaction_status ?? '').toLowerCase() === 'expire') {
+              setQris({ phase: 'failed', message: 'Pembayaran QRIS expired. Silakan buat QR baru.' });
+              return;
+            }
+          }
+        } catch {
+          // ignore transient network errors; keep polling
+        }
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+      if (!cancelled) setQris({ phase: 'failed', message: 'Timeout menunggu pembayaran QRIS.' });
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedMethod, qris]);
 
   const change = selectedMethod === 'CASH' 
     ? Math.max(0, parseFloat(cashReceived || '0') - total)
@@ -86,6 +202,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleSelectMethod = (method: PaymentMethod) => {
+    if ((method === 'TRANSFER' || method === 'EWALLET') && currentBusiness?.manualPaymentEnabled) {
+      if (manualAccounts.length === 0) {
+        alert('Belum ada akun manual yang aktif. Owner perlu mengaturnya di Settings → Bisnis.');
+        return;
+      }
+    }
     setSelectedMethod(method);
     if (method !== 'CASH') {
       setCashReceived(total.toString());
@@ -102,6 +224,48 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setIsProcessing(true);
 
     try {
+      if ((selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness.manualPaymentEnabled) {
+        if (!canConfirmManualNonCash) {
+          alert(
+            manualProofRequired
+              ? 'Lengkapi checklist dan upload bukti bayar terlebih dulu.'
+              : 'Lengkapi checklist dan pilih akun tujuan terlebih dulu.',
+          );
+          return;
+        }
+      }
+
+      if (selectedMethod === 'QRIS') {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          alert('QRIS butuh koneksi internet.');
+          return;
+        }
+        if (qris.phase !== 'paid') {
+          setQris({ phase: 'creating' });
+          const invoiceNumber = generateInvoiceNumber();
+          const r = await fetch('/api/pos/qris/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              businessId: currentBusiness.id,
+              tenantId: currentTenant.id,
+              cashierId: currentCashier.id,
+              invoiceNumber,
+              grossAmount: total,
+            }),
+          });
+          const txt = await r.text();
+          if (!r.ok) {
+            setQris({ phase: 'failed', message: `Gagal buat QRIS (HTTP ${r.status})` });
+            alert(`Gagal buat QRIS: ${txt.slice(0, 200)}`);
+            return;
+          }
+          const parsed = JSON.parse(txt) as { orderId: string; transactionId?: string; qrUrl?: string | null; qrString?: string | null };
+          setQris({ phase: 'pending', orderId: parsed.orderId, transactionId: parsed.transactionId ?? null, qrUrl: parsed.qrUrl ?? null, qrString: parsed.qrString ?? null });
+          return; // wait polling, user will hit Pay again after paid (or we could auto-finalize on paid)
+        }
+      }
+
       for (const item of items) {
         const fresh = await db.products.get(item.productId);
         if (!fresh) {
@@ -141,7 +305,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         customerName: customerName || undefined,
         notes: notes || undefined,
         status: 'COMPLETED',
-        createdAt: new Date()
+        createdAt: new Date(),
+        manualPaymentAccountId:
+          (selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness.manualPaymentEnabled
+            ? selectedManualAccountId || undefined
+            : undefined,
+        manualPaymentProofDataUrl:
+          (selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness.manualPaymentEnabled
+            ? manualProofDataUrl || undefined
+            : undefined,
+        manualPaymentConfirmedAt:
+          (selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness.manualPaymentEnabled
+            ? new Date()
+            : undefined,
       };
 
       // Save transaction
@@ -274,7 +450,7 @@ Terima kasih!
       }
     } else {
       // Fallback: copy to clipboard
-      navigator.clipboard.writeText(receiptText);
+      await copyText(receiptText);
       alert('Struk disalin ke clipboard!');
     }
   };
@@ -445,10 +621,44 @@ Terima kasih!
                 {/* QRIS Display */}
                 {selectedMethod === 'QRIS' && (
                   <div className="flex flex-col items-center py-4">
-                    <div className="w-48 h-48 bg-gray-100 dark:bg-gray-700 rounded-2xl 
-                                  flex items-center justify-center mb-4">
-                      <QrCode className="w-24 h-24 text-gray-400" />
-                    </div>
+                    {qris.phase === 'idle' || qris.phase === 'creating' ? (
+                      <div className="w-48 h-48 bg-gray-100 dark:bg-gray-700 rounded-2xl flex flex-col items-center justify-center mb-4 gap-2">
+                        <QrCode className="w-16 h-16 text-gray-400" />
+                        <p className="text-xs text-gray-500 px-6 text-center">
+                          Tekan “Selesaikan Pembayaran” untuk membuat QRIS.
+                        </p>
+                      </div>
+                    ) : qris.phase === 'pending' ? (
+                      <div className="w-56 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4 mb-4">
+                        <div className="w-full aspect-square rounded-xl bg-gray-50 dark:bg-gray-900 flex items-center justify-center overflow-hidden">
+                          {qris.qrUrl ? (
+                            <img src={qris.qrUrl} alt="QRIS" className="w-full h-full object-contain" />
+                          ) : (
+                            <div className="p-6 text-center">
+                              <QrCode className="w-16 h-16 text-gray-400 mx-auto" />
+                              <p className="mt-2 text-xs text-gray-500">QR siap. Silakan scan di bank/e-wallet.</p>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-3 text-xs text-gray-600 dark:text-gray-300">
+                          <p className="font-semibold">Menunggu pembayaran…</p>
+                          <p className="text-gray-500">Order: {qris.orderId.slice(0, 22)}…</p>
+                        </div>
+                      </div>
+                    ) : qris.phase === 'paid' ? (
+                      <div className="w-56 bg-emerald-50 dark:bg-emerald-900/20 rounded-2xl border border-emerald-200 dark:border-emerald-800 p-4 mb-4 text-center">
+                        <p className="font-bold text-emerald-700 dark:text-emerald-300">QRIS sudah dibayar</p>
+                        <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                          Tekan “Selesaikan Pembayaran” untuk menyimpan transaksi.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="w-56 bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-200 dark:border-red-800 p-4 mb-4 text-center">
+                        <p className="font-bold text-red-700 dark:text-red-300">QRIS gagal</p>
+                        <p className="mt-1 text-xs text-red-700/80 dark:text-red-300/80">{qris.message}</p>
+                      </div>
+                    )}
+
                     <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
                       Scan QR code dengan aplikasi e-wallet atau mobile banking
                     </p>
@@ -486,13 +696,100 @@ Terima kasih!
                              bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
                   />
                 </div>
+
+                {/* Manual Non-cash account display */}
+                {(selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness?.manualPaymentEnabled && (
+                  <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+                    <p className="font-bold text-gray-900 dark:text-white">Akun tujuan pembayaran</p>
+                    {manualAccounts.length === 0 ? (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        Belum ada akun manual yang aktif. Owner perlu menambahkannya di Settings → Bisnis.
+                      </p>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedManualAccountId}
+                          onChange={(e) => setSelectedManualAccountId(e.target.value)}
+                          className="w-full rounded-xl border border-gray-200 dark:border-gray-700 px-3 py-3 bg-gray-50 dark:bg-gray-700"
+                        >
+                          {manualAccounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.label} ({a.provider})
+                            </option>
+                          ))}
+                        </select>
+
+                        {selectedManualAccount && (
+                          <div className="rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-3">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                              {selectedManualAccount.label}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-500">
+                              {selectedManualAccount.ownerName ? `${selectedManualAccount.ownerName} • ` : ''}
+                              {selectedManualAccount.type}
+                            </p>
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <p className="font-mono text-lg font-bold text-gray-900 dark:text-white">
+                                {selectedManualAccount.accountNumber}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await copyText(selectedManualAccount.accountNumber);
+                                }}
+                                className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-semibold"
+                              >
+                                Copy
+                              </button>
+                            </div>
+                            {selectedManualAccount.instructions ? (
+                              <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">{selectedManualAccount.instructions}</p>
+                            ) : null}
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    <div className="rounded-xl border border-dashed border-gray-200 dark:border-gray-700 p-3 space-y-2">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
+                        Bukti bayar {manualProofRequired ? <span className="text-red-600">*</span> : <span className="text-gray-500">(opsional)</span>}
+                      </p>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => void onPickProofFile(e.target.files?.[0] ?? null)}
+                        className="block w-full text-sm"
+                      />
+                      {manualProofDataUrl ? (
+                        <img src={manualProofDataUrl} alt="Bukti bayar" className="w-full rounded-xl border border-gray-200 dark:border-gray-700" />
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={confirmSeenProof} onChange={(e) => setConfirmSeenProof(e.target.checked)} />
+                        Saya sudah lihat bukti pembayaran berhasil
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                        <input type="checkbox" checked={confirmAmountOk} onChange={(e) => setConfirmAmountOk(e.target.checked)} />
+                        Nominal sesuai dengan total
+                      </label>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Process Button */}
               <div className="p-4 border-t border-gray-200 dark:border-gray-700">
                 <button
                   onClick={handleProcessPayment}
-                  disabled={isProcessing || (selectedMethod === 'CASH' && parseFloat(cashReceived || '0') < total)}
+                  disabled={
+                    isProcessing ||
+                    (selectedMethod === 'CASH' && parseFloat(cashReceived || '0') < total) ||
+                    ((selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') &&
+                      currentBusiness?.manualPaymentEnabled &&
+                      !canConfirmManualNonCash)
+                  }
                   className="w-full py-4 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 
                            text-white font-bold text-lg shadow-lg shadow-emerald-500/30
                            disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none
@@ -507,7 +804,9 @@ Terima kasih!
                   ) : (
                     <>
                       <Check className="w-5 h-5" />
-                      Selesaikan Pembayaran
+                      {(selectedMethod === 'TRANSFER' || selectedMethod === 'EWALLET') && currentBusiness?.manualPaymentEnabled
+                        ? 'Konfirmasi sudah dibayar'
+                        : 'Selesaikan Pembayaran'}
                     </>
                   )}
                 </button>

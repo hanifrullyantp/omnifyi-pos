@@ -15,6 +15,8 @@ export const ACTIVITY_ACTION_FILTERS = [
   'SETTINGS_UPDATE',
   'SHIFT_OPEN',
   'SHIFT_CLOSE',
+  'STORE_OPEN',
+  'STORE_CLOSE',
 ] as const;
 
 export type ActivityActionFilter = (typeof ACTIVITY_ACTION_FILTERS)[number];
@@ -33,6 +35,8 @@ export const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   SETTINGS_UPDATE: 'Pengaturan diubah',
   SHIFT_OPEN: 'Shift dibuka',
   SHIFT_CLOSE: 'Shift ditutup',
+  STORE_OPEN: 'Toko dibuka',
+  STORE_CLOSE: 'Toko ditutup',
 };
 
 type LogInput = Omit<ActivityLog, 'id' | 'createdAt'> & { id?: string; createdAt?: Date };

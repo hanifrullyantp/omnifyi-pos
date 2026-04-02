@@ -1,0 +1,5 @@
+# Proyek Supabase di-link dengan: supabase link --project-ref <ref>
+# Lihat ref di: Supabase Dashboard → Settings → General → Reference ID
+
+[functions.cms-landing]
+verify_jwt = false

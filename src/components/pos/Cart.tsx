@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSwipeable } from 'react-swipeable';
 import { 
@@ -23,6 +23,9 @@ export const Cart: React.FC<CartProps> = ({
   serviceChargePercentage 
 }) => {
   const bid = useAuthStore((s) => s.currentBusiness?.id);
+  const currentCashier = useAuthStore((s) => s.currentCashier);
+  const canApplyDiscount = !!currentCashier?.canDiscount;
+  const maxDiscountPercent = currentCashier?.maxDiscountPercent ?? 100;
   const liveProducts = useLiveQuery(
     () => (bid ? db.products.where('businessId').equals(bid).toArray() : Promise.resolve([])),
     [bid]
@@ -62,6 +65,11 @@ export const Cart: React.FC<CartProps> = ({
   const [holdName, setHoldName] = useState('');
   const [showHoldModal, setShowHoldModal] = useState(false);
   const [cartToggleLockUntil, setCartToggleLockUntil] = useState(0);
+
+  // If cashier permission changes (or cashier role without permission), close discount UI.
+  useEffect(() => {
+    if (!canApplyDiscount && showDiscount) setShowDiscount(false);
+  }, [canApplyDiscount, showDiscount]);
 
   const subtotal = getSubtotal();
   const totalDiscount = getTotalDiscount();
@@ -194,6 +202,8 @@ export const Cart: React.FC<CartProps> = ({
                 setTransactionDiscount={setTransactionDiscount}
                 showDiscount={showDiscount}
                 setShowDiscount={setShowDiscount}
+                canApplyDiscount={canApplyDiscount}
+                maxDiscountPercent={maxDiscountPercent}
                 clearCart={clearCart}
                 onHold={() => setShowHoldModal(true)}
                 onCheckout={onCheckout}
@@ -254,6 +264,8 @@ export const Cart: React.FC<CartProps> = ({
         setTransactionDiscount={setTransactionDiscount}
         showDiscount={showDiscount}
         setShowDiscount={setShowDiscount}
+        canApplyDiscount={canApplyDiscount}
+        maxDiscountPercent={maxDiscountPercent}
         clearCart={clearCart}
         onHold={() => setShowHoldModal(true)}
         onCheckout={onCheckout}
@@ -603,6 +615,8 @@ interface CartFooterProps {
   setTransactionDiscount: (discount: number, type: 'PERCENT' | 'NOMINAL') => void;
   showDiscount: boolean;
   setShowDiscount: (show: boolean) => void;
+  canApplyDiscount: boolean;
+  maxDiscountPercent: number;
   clearCart: () => void;
   onHold: () => void;
   onCheckout: () => void;
@@ -622,6 +636,8 @@ const CartFooter: React.FC<CartFooterProps> = ({
   setTransactionDiscount,
   showDiscount,
   setShowDiscount,
+  canApplyDiscount,
+  maxDiscountPercent,
   clearCart,
   onHold,
   onCheckout,
@@ -630,11 +646,25 @@ const CartFooter: React.FC<CartFooterProps> = ({
   const [discountInput, setDiscountInput] = useState(transactionDiscount.toString());
   const [discountType, setDiscountType] = useState<'PERCENT' | 'NOMINAL'>(transactionDiscountType);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [discountError, setDiscountError] = useState('');
 
   const quickDiscounts = [5, 10, 15, 20];
 
   const applyDiscount = () => {
-    setTransactionDiscount(parseFloat(discountInput) || 0, discountType);
+    const raw = parseFloat(discountInput) || 0;
+    if (discountType === 'PERCENT') {
+      const max = Number.isFinite(maxDiscountPercent) ? maxDiscountPercent : 100;
+      if (raw > max) {
+        setDiscountError(`Maks diskon untuk kasir ini: ${max}%`);
+        return;
+      }
+      if (raw < 0) {
+        setDiscountError('Diskon tidak boleh negatif.');
+        return;
+      }
+    }
+    setDiscountError('');
+    setTransactionDiscount(raw, discountType);
     setShowDiscount(false);
   };
 
@@ -691,12 +721,16 @@ const CartFooter: React.FC<CartFooterProps> = ({
                   <button
                     key={d}
                     onClick={() => {
+                      setDiscountError('');
                       setDiscountInput(d.toString());
                       setDiscountType('PERCENT');
                     }}
+                    disabled={d > maxDiscountPercent}
                     className={cn(
                       "flex-1 py-2 rounded-lg text-sm font-medium transition-colors",
-                      discountInput === d.toString() && discountType === 'PERCENT'
+                      d > maxDiscountPercent
+                        ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                        : discountInput === d.toString() && discountType === 'PERCENT'
                         ? "bg-emerald-500 text-white"
                         : "bg-gray-100 dark:bg-gray-600 text-gray-700 dark:text-gray-300"
                     )}
@@ -732,6 +766,12 @@ const CartFooter: React.FC<CartFooterProps> = ({
                   Terapkan
                 </button>
               </div>
+              {discountType === 'PERCENT' && maxDiscountPercent < 100 && (
+                <p className="text-xs text-gray-500">
+                  Batas diskon kasir: <span className="font-semibold">{maxDiscountPercent}%</span>
+                </p>
+              )}
+              {discountError && <p className="text-xs text-red-600">{discountError}</p>}
           </div>
         </div>
       )}
@@ -740,10 +780,11 @@ const CartFooter: React.FC<CartFooterProps> = ({
       <div className="flex gap-2 mb-3">
         <button
           onClick={() => setShowDiscount(!showDiscount)}
-          disabled={disabled}
+          disabled={disabled || !canApplyDiscount}
           className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl 
                    border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300
                    disabled:opacity-50 disabled:cursor-not-allowed"
+          title={!canApplyDiscount ? 'Diskon terkunci untuk kasir ini' : undefined}
         >
           <Percent className="w-4 h-4" />
           Diskon

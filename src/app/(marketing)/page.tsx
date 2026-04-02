@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
-import { db, seedInitialData } from '../../lib/db';
+import { db, seedInitialData, seedDemoWorkspace, DEMO_OWNER_EMAIL } from '../../lib/db';
 import { useAuthStore } from '../../lib/store';
-import { runLocalBillingFlow } from '../../lib/billingFlow';
+import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../../lib/billingFlow';
 import MarketingLayout from './layout';
 import { defaultLandingContent, loadLandingContent, type LandingContent } from '../../lib/landingContent';
+import { supabase } from '../../lib/supabaseClient';
+import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../../lib/cloudProvision';
 
 export default function MarketingPage() {
   const { setAuth } = useAuthStore();
@@ -23,10 +25,15 @@ export default function MarketingPage() {
   const [checkoutName, setCheckoutName] = useState('');
   const [checkoutPhone, setCheckoutPhone] = useState('');
   const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [checkoutLeadId, setCheckoutLeadId] = useState('');
+  const [checkoutOrderId, setCheckoutOrderId] = useState('');
+  const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
   const [status, setStatus] = useState('');
   const [content, setContent] = useState<LandingContent>(defaultLandingContent);
   const [socialText, setSocialText] = useState('');
   const [socialVisible, setSocialVisible] = useState(false);
+
+  const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
 
   const minMs = useMemo(() => Math.max(1000, content.notificationBanner.minIntervalSec * 1000), [content.notificationBanner.minIntervalSec]);
   const maxMs = useMemo(() => Math.max(minMs, content.notificationBanner.maxIntervalSec * 1000), [content.notificationBanner.maxIntervalSec, minMs]);
@@ -74,30 +81,39 @@ export default function MarketingPage() {
 
   const loginOwner = async () => {
     await seedInitialData();
-    const user = await db.users.where('email').equals(email.trim()).first();
-    if (!user) return setStatus('Email tidak ditemukan');
+    const emailNorm = email.trim().toLowerCase();
     const passInput = password.trim();
-    if (user.role === 'OWNER' && passInput !== 'password') return setStatus('Password salah');
-    if (user.role === 'ADMIN_SYSTEM' && passInput !== '12345678') return setStatus('Password salah');
 
-    const tenants = await db.tenants.toArray();
-    const tenant = user.role === 'OWNER'
-      ? await db.tenants.where('ownerId').equals(user.id!).first()
-      : tenants[0];
-    if (!tenant) return setStatus('Tenant tidak ditemukan');
-    const businesses = await db.businesses.where('tenantId').equals(tenant.id!).toArray();
-    if (businesses.length === 0) return setStatus('Usaha tidak ditemukan');
-
-    setAuth(user, tenant, businesses[0], businesses);
+    if (emailNorm === DEMO_OWNER_EMAIL) {
+      await seedDemoWorkspace();
+      const user = await db.users.where('email').equals(emailNorm).first();
+      if (!user) return setStatus('Akun demo tidak ditemukan');
+      if (passInput !== user.passwordHash) return setStatus('Password salah');
+      const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
+      const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
+      if (!tenant || businesses.length === 0) return setStatus('Usaha demo tidak ditemukan');
+      setAuth(user, tenant, businesses[0], businesses);
+    } else {
+      if (!supabase) return setStatus('Supabase env belum diset. Isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di .env.local lalu restart dev server.');
+      const { data, error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: passInput });
+      if (error || !data.user) return setStatus('Email atau password salah');
+      const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+      const { user, tenant, business } = await ensureLocalCoreRows({
+        userId: data.user.id,
+        email: emailNorm,
+        tenantId,
+        businessId,
+        businessName: 'Usaha Baru',
+      });
+      setAuth(user, tenant, business, [business]);
+    }
     setLoginOpen(false);
     setStatus('');
-    if (user.role === 'ADMIN_SYSTEM') {
-      setSuperAdminChoiceOpen(true);
-    }
   };
 
   const loginDemoOwner = async () => {
     await seedInitialData();
+    await seedDemoWorkspace();
     const user = await db.users.where('email').equals('owner@example.com').first();
     if (!user) return setStatus('Akun demo tidak ditemukan');
     const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
@@ -142,8 +158,8 @@ export default function MarketingPage() {
   const checkout = async (plan: 'starter' | 'growth' | 'pro') => {
     setCheckoutOpen(true);
     if (!checkoutName || !checkoutPhone || !checkoutEmail) return;
-    const orderId = `OMN-${Date.now()}`;
     const leadId = crypto.randomUUID();
+    const amount = plan === 'starter' ? 79000 : plan === 'growth' ? 149000 : 349000;
     await db.crmLeads.add({
       id: leadId,
       fullName: checkoutName,
@@ -152,13 +168,59 @@ export default function MarketingPage() {
       businessType: 'UMKM',
       source: 'LANDING_CHECKOUT',
       stage: 'CHECKOUT',
-      amount: plan === 'starter' ? 79000 : plan === 'growth' ? 149000 : 349000,
-      orderId,
+      amount,
       createdAt: new Date(),
     });
+    setCheckoutLeadId(leadId);
+
+    if (midtransEnabled) {
+      setStatus('Membuat invoice Midtrans…');
+      const r = await startMidtransCheckout({
+        leadId,
+        packageId: plan,
+        buyerName: checkoutName.trim(),
+        buyerEmail: checkoutEmail.trim(),
+        buyerPhone: checkoutPhone.trim(),
+        amount,
+      });
+      setCheckoutOrderId(r.orderId);
+      setCheckoutRedirectUrl(r.redirectUrl);
+      await db.crmLeads.update(leadId, { orderId: r.orderId, updatedAt: new Date() });
+      window.open(r.redirectUrl, '_blank', 'noopener,noreferrer');
+      setStatus('Silakan selesaikan pembayaran di Midtrans, lalu klik “Saya sudah bayar”.');
+      return;
+    }
+
+    const orderId = `OMN-${Date.now()}`;
+    await db.crmLeads.update(leadId, { orderId, updatedAt: new Date() });
     setStatus('Checkout dibuat. Menunggu pembayaran...');
-    await runLocalBillingFlow({ leadId, orderId, packageId: plan, buyerName: checkoutName, buyerEmail: checkoutEmail });
-    setStatus('Pembayaran terdeteksi. Email konfirmasi & akses login sudah dikirim otomatis.');
+    const auth = await runLocalBillingFlow({
+      leadId,
+      orderId,
+      packageId: plan,
+      buyerName: checkoutName,
+      buyerEmail: checkoutEmail.trim(),
+    });
+    setStatus(`Akun usaha kosong siap dipakai. Login dengan email ${checkoutEmail.trim()} dan password sementara: ${auth.tempPassword}`);
+  };
+
+  const confirmPaid = async () => {
+    if (!midtransEnabled) return;
+    if (!checkoutOrderId || !checkoutLeadId) return;
+    setStatus('Mengecek status pembayaran…');
+    const s = await checkMidtransPaid(checkoutOrderId);
+    if (!s.paid) {
+      setStatus(`Belum terdeteksi lunas (status: ${s.transaction_status ?? 'unknown'}). Coba lagi sebentar.`);
+      return;
+    }
+    const auth = await runLocalBillingFlow({
+      leadId: checkoutLeadId,
+      orderId: checkoutOrderId,
+      packageId: 'pro',
+      buyerName: checkoutName,
+      buyerEmail: checkoutEmail.trim(),
+    });
+    setStatus(`Pembayaran terverifikasi. Login dengan email ${checkoutEmail.trim()} dan password sementara: ${auth.tempPassword}`);
   };
 
   return (
@@ -349,6 +411,21 @@ export default function MarketingPage() {
               <button onClick={() => void checkout('growth')} className="py-2 rounded-lg border border-white/20 text-white">Growth</button>
               <button onClick={() => void checkout('pro')} className="py-2 rounded-lg bg-emerald-500 text-white font-semibold">Lifetime</button>
             </div>
+            {midtransEnabled && checkoutRedirectUrl && (
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <a
+                  href={checkoutRedirectUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="py-2 rounded-lg border border-white/20 text-white text-center"
+                >
+                  Buka pembayaran
+                </a>
+                <button onClick={() => void confirmPaid()} className="py-2 rounded-lg bg-blue-600 text-white font-semibold">
+                  Saya sudah bayar
+                </button>
+              </div>
+            )}
             {!!status && <p className="mt-3 text-sm text-emerald-300">{status}</p>}
           </div>
         </div>
