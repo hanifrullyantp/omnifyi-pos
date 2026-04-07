@@ -13,6 +13,7 @@ import MarketingLayout from '../app/(marketing)/layout';
 import { defaultLandingContent, loadLandingContent, type LandingContent } from '../lib/landingContent';
 import { supabase } from '../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../lib/cloudProvision';
+import { SalesLandingBody, SalesLandingHeader, SalesLandingHero, SalesLoginCard } from '../components/salesLanding';
 
 export default function LoginLandingPage() {
   const { setAuth } = useAuthStore();
@@ -248,242 +249,35 @@ export default function LoginLandingPage() {
 
   return (
     <MarketingLayout>
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0B0F19]/80 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {content.logoUrl ? <img src={content.logoUrl} className="w-7 h-7 rounded-lg object-cover" alt="" /> : <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />}
-            <p className="font-bold text-white">{content.brandName}</p>
-          </div>
-          <nav className="hidden md:flex gap-6 text-sm text-gray-400">
-            <a href="#fitur" className="hover:text-white">
-              {content.nav.fitur}
-            </a>
-            <a href="#cara-kerja" className="hover:text-white">
-              {content.nav.caraKerja}
-            </a>
-            <a href="#harga" className="hover:text-white">
-              {content.nav.harga}
-            </a>
-            <a href="#faq" className="hover:text-white">
-              {content.nav.faq}
-            </a>
-          </nav>
-          <div className="flex gap-2">
-            <a
-              href="#login-card"
-              className="px-4 py-2 rounded-lg border border-white/20 text-white text-sm inline-flex items-center justify-center"
-            >
-              {content.nav.masuk}
-            </a>
-            <button type="button" onClick={() => setDemoOpen(true)} className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold">
-              {content.nav.coba}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <section className="max-w-6xl mx-auto px-5 py-10 md:py-16">
-        <div className="grid lg:grid-cols-[1fr_minmax(320px,400px)] gap-10 lg:gap-14 items-start">
-          <div>
-            <p className="text-emerald-400 text-sm font-medium">{content.hero.preHeadline}</p>
-            <h1 className="mt-3 text-3xl sm:text-4xl md:text-5xl font-bold text-white leading-tight">
-              {content.hero.headline1} {content.hero.headline2}
-            </h1>
-            <h2 className="mt-4 text-xl sm:text-2xl md:text-3xl font-semibold text-emerald-400/95 leading-snug">
-              {content.hero.sub1} {content.hero.sub2} {content.hero.sub3}
-            </h2>
-            <p className="mt-4 text-gray-400 max-w-xl text-base leading-relaxed">{content.hero.description}</p>
-            <div className="mt-6 flex flex-col sm:flex-row gap-3">
-              <button type="button" onClick={() => setDemoOpen(true)} className="px-6 py-3.5 rounded-xl text-base font-semibold bg-emerald-500 hover:bg-emerald-600 text-white">
-                {content.hero.ctaPrimary}
-              </button>
-              <a
-                href="#login-card"
-                className="px-6 py-3.5 rounded-xl border border-white/20 text-white text-center text-base inline-flex items-center justify-center"
-              >
-                {content.hero.ctaSecondary}
-              </a>
-            </div>
-            <p className="mt-4 text-sm text-emerald-400">{content.hero.badge}</p>
-            <p className="text-xs text-gray-500">{content.hero.badgeSub}</p>
-
-            <div className="mt-10 grid sm:grid-cols-3 gap-3">
-              {featureHighlights.map((f) => (
-                <div key={f.title} className="rounded-xl p-4 border border-white/[0.08] bg-white/[0.03]">
-                  <p className="text-white font-semibold text-sm">{f.title}</p>
-                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">{f.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div
-            id="login-card"
-            className="rounded-2xl border border-white/10 bg-[#0F172A]/90 shadow-xl shadow-black/20 p-6 md:p-7 scroll-mt-28"
-          >
-            <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100/95">
-              <p className="font-semibold text-amber-200">Mode demo</p>
-              <p className="mt-1 text-amber-100/80 text-xs leading-relaxed">
-                Gunakan <span className="font-mono text-amber-200">owner@example.com</span> / <span className="font-mono text-amber-200">password</span> untuk coba cepat di perangkat ini.
-              </p>
-            </div>
-            <button
-              type="button"
-              disabled={resetBusy}
-              onClick={() => void handleResetDemo()}
-              className="mt-3 w-full py-2 rounded-lg text-xs font-medium border border-white/15 text-gray-300 hover:bg-white/5 disabled:opacity-50"
-            >
-              {resetBusy ? 'Memproses…' : 'Reset data ke demo'}
-            </button>
-
-            <h3 className="mt-6 text-lg font-bold text-white">Masuk</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Akun cloud memakai Supabase; demo hanya di lokal.</p>
-            <div className="mt-4 space-y-2">
-              <label className="block text-xs text-gray-400">Email</label>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Email"
-                autoComplete="email"
-                className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/15 text-white text-sm"
-              />
-              <label className="block text-xs text-gray-400 mt-2">Password</label>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                type="password"
-                autoComplete="current-password"
-                className="w-full px-3 py-2.5 rounded-xl bg-black/25 border border-white/15 text-white text-sm"
-              />
-            </div>
-            <button type="button" onClick={() => void loginOwner()} className="mt-5 w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-sm">
-              Masuk
-            </button>
-            <p className="mt-4 text-center text-sm text-gray-400">
-              Belum punya akun?{' '}
-              <button type="button" onClick={() => setCheckoutOpen(true)} className="text-emerald-400 hover:text-emerald-300 font-medium">
-                Daftar / beli paket
-              </button>
-            </p>
-            {!!status && <p className="mt-4 text-sm text-emerald-300">{status}</p>}
-          </div>
-        </div>
-
-        <div className="mt-12 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          {content.heroImageUrl ? (
-            <img src={content.heroImageUrl} className="w-full h-56 md:h-72 object-cover rounded-xl" alt="" />
-          ) : (
-            <div className="h-56 md:h-72 rounded-xl bg-slate-800 flex items-center justify-center text-gray-400">Dashboard Preview</div>
-          )}
-        </div>
-      </section>
-
-      <section className="max-w-6xl mx-auto px-5 py-14">
-        <p className="text-emerald-400 text-sm text-center">{content.painPoints.label}</p>
-        <h3 className="text-3xl md:text-4xl font-bold text-white text-center mt-2">{content.painPoints.title}</h3>
-        <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {content.painPoints.cards.map((c) => (
-            <div key={c.title} className="rounded-xl p-6 border border-white/[0.06] bg-white/[0.03]">
-              <p className="text-4xl mb-3">{c.emoji}</p>
-              <p className="text-white font-semibold">{c.title}</p>
-              <p className="text-sm text-gray-400 mt-1">{c.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="cara-kerja" className="bg-[#111827]">
-        <div className="max-w-4xl mx-auto px-5 py-14">
-          <h3 className="text-2xl md:text-3xl font-bold text-white text-center">{content.deeperPain.title}</h3>
-          <div className="mt-8 space-y-4">
-            {content.deeperPain.items.map((i) => (
-              <p key={i.bold} className="text-gray-300">
-                <span className="font-semibold text-white">{i.bold}</span>
-                {i.rest}
-              </p>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="fitur" className="max-w-6xl mx-auto px-5 py-14">
-        <h3 className="text-3xl md:text-4xl font-bold text-white text-center">{content.features.title}</h3>
-        <p className="text-gray-400 text-center mt-2">{content.features.subtitle}</p>
-        <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {content.features.cards.map((f) => (
-            <div key={f.title} className="rounded-xl p-5 bg-white/[0.03] border border-white/[0.06]">
-              <p className="text-white font-semibold">{f.title}</p>
-              <p className="text-sm text-gray-400 mt-1">{f.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section id="harga" className="bg-[#111827]">
-        <div className="max-w-6xl mx-auto px-5 py-14">
-          <h3 className="text-3xl md:text-4xl font-bold text-white text-center">{content.pricing.title}</h3>
-          <p className="text-gray-400 text-center mt-2">{content.pricing.subtitle}</p>
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="rounded-2xl p-6 border border-white/10 bg-white/[0.03]">
-              <p className="text-white text-3xl font-bold">{content.pricing.monthlyPrice}</p>
-              <ul className="mt-4 space-y-1 text-sm text-gray-300">
-                {content.pricing.monthlyFeatures.map((x) => (
-                  <li key={x}>✓ {x}</li>
-                ))}
-              </ul>
-              <button type="button" onClick={() => void checkout('starter')} className="mt-4 w-full py-2.5 border border-white/20 rounded-xl">
-                Pilih Paket
-              </button>
-            </div>
-            <div className="rounded-2xl p-6 border border-emerald-500/40 bg-emerald-500/[0.08]">
-              <p className="text-white text-3xl font-bold">{content.pricing.lifetimePrice}</p>
-              <ul className="mt-4 space-y-1 text-sm text-gray-200">
-                {content.pricing.lifetimeFeatures.map((x) => (
-                  <li key={x}>✓ {x}</li>
-                ))}
-              </ul>
-              <button type="button" onClick={() => void checkout('pro')} className="mt-4 w-full py-2.5 bg-emerald-500 rounded-xl">
-                Pilih Paket Lifetime
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="faq" className="max-w-4xl mx-auto px-5 py-14">
-        <h3 className="text-3xl md:text-4xl font-bold text-white text-center">{content.faq.title}</h3>
-        <p className="text-gray-400 text-center mt-2">{content.faq.subtitle}</p>
-        <div className="mt-8 space-y-3">
-          {content.faq.items.map((it) => (
-            <div key={it.q} className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4">
-              <p className="text-white font-medium">{it.q}</p>
-              <p className="text-sm text-gray-400 mt-1">{it.a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="px-5 py-14">
-        <div className="max-w-5xl mx-auto rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-8 text-center">
-          <h3 className="text-2xl md:text-3xl font-bold text-white">{content.finalCta.title}</h3>
-          <p className="mt-3 text-lg text-gray-300">{content.finalCta.subtitle}</p>
-          <p className="mt-3 text-base text-gray-400">{content.finalCta.description}</p>
-          <p className="mt-4 text-lg text-emerald-400 font-semibold">{content.finalCta.badge}</p>
-          <button type="button" onClick={() => setCheckoutOpen(true)} className="mt-6 px-10 py-4 rounded-xl text-lg font-semibold bg-emerald-500 hover:bg-emerald-600 text-white">
-            {content.finalCta.button}
-          </button>
-        </div>
-      </section>
-
-      <footer className="border-t border-white/[0.06] px-5 py-10 text-center text-gray-500">
-        © 2026 {content.brandName}. {content.tagline}
-      </footer>
+      <SalesLandingHeader content={content} onCoba={() => setDemoOpen(true)} />
+      <SalesLandingHero
+        content={content}
+        featureHighlights={featureHighlights}
+        onCoba={() => setDemoOpen(true)}
+        loginPanel={
+          <SalesLoginCard
+            email={email}
+            password={password}
+            status={status}
+            resetBusy={resetBusy}
+            onEmailChange={setEmail}
+            onPasswordChange={setPassword}
+            onLogin={() => void loginOwner()}
+            onResetDemo={() => void handleResetDemo()}
+            onOpenCheckout={() => setCheckoutOpen(true)}
+          />
+        }
+      />
+      <SalesLandingBody
+        content={content}
+        onCheckout={(plan) => void checkout(plan)}
+        onOpenCheckout={() => setCheckoutOpen(true)}
+      />
 
       {socialVisible && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] rounded-xl border border-emerald-500/30 bg-[#0F172A]/95 px-4 py-3 text-sm text-emerald-200 shadow-lg shadow-emerald-500/20 animate-fade-in-up">
+        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] rounded-xl border border-teal-500/30 bg-[#0F172A]/95 px-4 py-3 text-sm text-teal-200 shadow-lg shadow-teal-500/15 animate-fade-in-up">
           <span className="inline-flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <CheckCircle2 className="w-4 h-4 text-teal-400" />
             {socialText}
           </span>
         </div>
@@ -491,11 +285,11 @@ export default function LoginLandingPage() {
 
       {superAdminChoiceOpen && (
         <div className="fixed inset-0 z-[73] bg-black/70 p-4 flex items-center justify-center">
-          <div className="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-[#0F172A] p-5">
+          <div className="w-full max-w-md rounded-2xl border border-teal-500/30 bg-[#0F172A] p-5">
             <h4 className="text-white font-bold text-lg">Super Admin Terdeteksi</h4>
             <p className="text-sm text-gray-400 mt-1">Pilih tujuan masuk:</p>
             <div className="mt-4 grid grid-cols-1 gap-2">
-              <a href="/admin" className="w-full py-3 text-center rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">
+              <a href="/admin" className="w-full py-3 text-center rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-semibold">
                 Masuk Admin LP
               </a>
               <a href="/dashboard" className="w-full py-3 text-center rounded-xl border border-white/20 text-white">
@@ -511,7 +305,7 @@ export default function LoginLandingPage() {
 
       {demoOpen && (
         <div className="fixed inset-0 z-[72] bg-black/70 p-4 flex items-center justify-center">
-          <div className="w-full max-w-xl rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-[#0F172A] to-[#111827] p-5 shadow-xl shadow-emerald-500/10">
+          <div className="w-full max-w-xl rounded-2xl border border-teal-500/30 bg-gradient-to-b from-[#0F172A] to-[#111827] p-5 shadow-xl shadow-teal-500/10">
             <div className="flex items-center justify-between">
               <div>
                 <h4 className="font-bold text-white text-lg">Form Demo Aplikasi Omnifyi POS</h4>
@@ -529,7 +323,7 @@ export default function LoginLandingPage() {
               <input value={demoBusinessType} onChange={(e) => setDemoBusinessType(e.target.value)} placeholder="Jenis usaha" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
               <input value={demoAddress} onChange={(e) => setDemoAddress(e.target.value)} placeholder="Alamat usaha" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
             </div>
-            <button type="button" onClick={() => void submitDemoForm()} className="mt-4 w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">
+            <button type="button" onClick={() => void submitDemoForm()} className="mt-4 w-full py-3 rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-semibold">
               Buka Demo Sekarang
             </button>
           </div>
@@ -557,7 +351,7 @@ export default function LoginLandingPage() {
               <button type="button" onClick={() => void checkout('growth')} className="py-2 rounded-lg border border-white/20 text-white">
                 Growth
               </button>
-              <button type="button" onClick={() => void checkout('pro')} className="py-2 rounded-lg bg-emerald-500 text-white font-semibold">
+              <button type="button" onClick={() => void checkout('pro')} className="py-2 rounded-lg bg-teal-500 text-white font-semibold">
                 Lifetime
               </button>
             </div>
@@ -571,7 +365,7 @@ export default function LoginLandingPage() {
                 </button>
               </div>
             )}
-            {!!status && <p className="mt-3 text-sm text-emerald-300">{status}</p>}
+            {!!status && <p className="mt-3 text-sm text-teal-300">{status}</p>}
           </div>
         </div>
       )}
