@@ -8,8 +8,10 @@
     "start": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "npx vercel",
-    "deploy:prod": "npx vercel --prod",
+    "deploy": "npm run build && npx vercel",
+    "deploy:prod": "npm run build && npx vercel --prod",
+    "vercel:preview": "npx vercel",
+    "vercel:prod": "npx vercel --prod",
     "supabase:deploy:cms": "supabase functions deploy cms-landing --no-verify-jwt"
   },
   "dependencies": {

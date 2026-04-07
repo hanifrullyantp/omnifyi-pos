@@ -28,7 +28,6 @@ export function SalesLoginCard({
 }: Props) {
   return (
     <div
-      id="login-card"
       className={cn(
         'rounded-2xl border border-teal-500/20 bg-slate-900/90 backdrop-blur-sm p-6 md:p-7 scroll-mt-28 shadow-2xl shadow-teal-500/10 ring-1 ring-white/[0.04]',
         className,

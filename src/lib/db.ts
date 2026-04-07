@@ -441,7 +441,7 @@ export interface CrmLead {
   email: string;
   phone: string;
   businessType: string;
-  source: 'LANDING_DEMO' | 'LANDING_CHECKOUT' | 'APP_FEEDBACK';
+  source: 'LANDING_DEMO' | 'LANDING_CHECKOUT' | 'LANDING_SALES' | 'APP_FEEDBACK';
   stage: LeadStage;
   notes?: string;
   orderId?: string;

@@ -1,19 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, X } from 'lucide-react';
-import {
-  db,
-  seedInitialData,
-  seedDemoWorkspace,
-  DEMO_OWNER_EMAIL,
-  resetDemoData,
-} from '../lib/db';
+import React, { useCallback, useState } from 'react';
+import { X } from 'lucide-react';
+import { db, seedInitialData, seedDemoWorkspace, DEMO_OWNER_EMAIL, resetDemoData } from '../lib/db';
 import { useAuthStore } from '../lib/store';
 import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../lib/billingFlow';
-import MarketingLayout from '../app/(marketing)/layout';
-import { defaultLandingContent, loadLandingContent, type LandingContent } from '../lib/landingContent';
 import { supabase } from '../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../lib/cloudProvision';
-import { SalesLandingBody, SalesLandingHeader, SalesLandingHero, SalesLoginCard } from '../components/salesLanding';
+import { CmsProvider } from '../salesPageBaru/context/CmsContext';
+import { LandingIntegrationProvider, type SalesLeadFormPayload } from '../salesPageBaru/context/LandingIntegrationContext';
+import { SalesBaruPageContent } from '../salesPageBaru/SalesBaruPageContent';
+import { SalesLoginCard } from '../components/salesLanding/SalesLoginCard';
 
 export default function LoginLandingPage() {
   const { setAuth } = useAuthStore();
@@ -36,57 +31,8 @@ export default function LoginLandingPage() {
   const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
   const [status, setStatus] = useState('');
   const [resetBusy, setResetBusy] = useState(false);
-  const [content, setContent] = useState<LandingContent>(defaultLandingContent);
-  const [socialText, setSocialText] = useState('');
-  const [socialVisible, setSocialVisible] = useState(false);
 
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
-
-  const minMs = useMemo(() => Math.max(1000, content.notificationBanner.minIntervalSec * 1000), [content.notificationBanner.minIntervalSec]);
-  const maxMs = useMemo(() => Math.max(minMs, content.notificationBanner.maxIntervalSec * 1000), [content.notificationBanner.maxIntervalSec, minMs]);
-
-  const featureHighlights = useMemo(() => content.features.cards.slice(0, 3), [content.features.cards]);
-
-  useEffect(() => {
-    void loadLandingContent().then((c) => setContent(c));
-  }, []);
-
-  useEffect(() => {
-    if (content.faviconUrl) {
-      let favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-      if (!favicon) {
-        favicon = document.createElement('link');
-        favicon.rel = 'icon';
-        document.head.appendChild(favicon);
-      }
-      favicon.href = content.faviconUrl;
-    }
-  }, [content.faviconUrl]);
-
-  useEffect(() => {
-    if (!content.notificationBanner.enabled || content.notificationBanner.items.length === 0) return;
-    let timeoutId: number | undefined;
-    const loop = () => {
-      const waitMs = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
-      timeoutId = window.setTimeout(() => {
-        const pick = content.notificationBanner.items[Math.floor(Math.random() * content.notificationBanner.items.length)];
-        setSocialText(`${pick.name} baru saja memesan ${pick.package} ${content.brandName}`);
-        setSocialVisible(true);
-        if (content.notificationBanner.soundUrl) {
-          const audio = new Audio(content.notificationBanner.soundUrl);
-          void audio.play().catch(() => {});
-        }
-        window.setTimeout(() => {
-          setSocialVisible(false);
-          loop();
-        }, Math.max(1000, content.notificationBanner.durationSec * 1000));
-      }, waitMs);
-    };
-    loop();
-    return () => {
-      if (timeoutId) window.clearTimeout(timeoutId);
-    };
-  }, [content, maxMs, minMs]);
 
   const loginOwner = async () => {
     await seedInitialData();
@@ -247,128 +193,131 @@ export default function LoginLandingPage() {
     }
   };
 
+  const persistLead = useCallback(async (payload: SalesLeadFormPayload) => {
+    await seedInitialData();
+    const phone = payload.whatsapp.trim().replace(/\s+/g, '');
+    const emailLocal = phone ? `${phone.replace(/\D/g, '')}@wa.lead.local` : `lead-${crypto.randomUUID().slice(0, 8)}@wa.lead.local`;
+    await db.crmLeads.add({
+      id: crypto.randomUUID(),
+      fullName: payload.name.trim(),
+      email: emailLocal,
+      phone: payload.whatsapp.trim(),
+      businessType: payload.needs || 'Lainnya',
+      source: 'LANDING_SALES',
+      stage: 'DEMO',
+      notes: `Kota: ${payload.city} | Outlet: ${payload.size || '-'} | Catatan: ${payload.notes || '-'}`,
+      createdAt: new Date(),
+    });
+  }, []);
+
+  const authPanel = (
+    <SalesLoginCard
+      email={email}
+      password={password}
+      status={status}
+      resetBusy={resetBusy}
+      onEmailChange={setEmail}
+      onPasswordChange={setPassword}
+      onLogin={() => void loginOwner()}
+      onResetDemo={() => void handleResetDemo()}
+      onOpenCheckout={() => setCheckoutOpen(true)}
+    />
+  );
+
   return (
-    <MarketingLayout>
-      <SalesLandingHeader content={content} onCoba={() => setDemoOpen(true)} />
-      <SalesLandingHero
-        content={content}
-        featureHighlights={featureHighlights}
-        onCoba={() => setDemoOpen(true)}
-        loginPanel={
-          <SalesLoginCard
-            email={email}
-            password={password}
-            status={status}
-            resetBusy={resetBusy}
-            onEmailChange={setEmail}
-            onPasswordChange={setPassword}
-            onLogin={() => void loginOwner()}
-            onResetDemo={() => void handleResetDemo()}
-            onOpenCheckout={() => setCheckoutOpen(true)}
-          />
-        }
-      />
-      <SalesLandingBody
-        content={content}
-        onCheckout={(plan) => void checkout(plan)}
-        onOpenCheckout={() => setCheckoutOpen(true)}
-      />
-
-      {socialVisible && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] rounded-xl border border-teal-500/30 bg-[#0F172A]/95 px-4 py-3 text-sm text-teal-200 shadow-lg shadow-teal-500/15 animate-fade-in-up">
-          <span className="inline-flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-teal-400" />
-            {socialText}
-          </span>
+    <CmsProvider>
+      <LandingIntegrationProvider persistLead={persistLead} openCheckoutModal={() => setCheckoutOpen(true)}>
+        <div className="bg-slate-950 min-h-screen text-slate-50 font-sans selection:bg-emerald-500/30 selection:text-emerald-200 scroll-smooth">
+          <SalesBaruPageContent authPanel={authPanel} />
         </div>
-      )}
 
-      {superAdminChoiceOpen && (
-        <div className="fixed inset-0 z-[73] bg-black/70 p-4 flex items-center justify-center">
-          <div className="w-full max-w-md rounded-2xl border border-teal-500/30 bg-[#0F172A] p-5">
-            <h4 className="text-white font-bold text-lg">Super Admin Terdeteksi</h4>
-            <p className="text-sm text-gray-400 mt-1">Pilih tujuan masuk:</p>
-            <div className="mt-4 grid grid-cols-1 gap-2">
-              <a href="/admin" className="w-full py-3 text-center rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-semibold">
-                Masuk Admin LP
-              </a>
-              <a href="/dashboard" className="w-full py-3 text-center rounded-xl border border-white/20 text-white">
-                Masuk Aplikasi
-              </a>
-              <button type="button" onClick={() => setSuperAdminChoiceOpen(false)} className="w-full py-2 text-sm text-gray-400">
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {demoOpen && (
-        <div className="fixed inset-0 z-[72] bg-black/70 p-4 flex items-center justify-center">
-          <div className="w-full max-w-xl rounded-2xl border border-teal-500/30 bg-gradient-to-b from-[#0F172A] to-[#111827] p-5 shadow-xl shadow-teal-500/10">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-bold text-white text-lg">Form Demo Aplikasi Omnifyi POS</h4>
-                <p className="text-xs text-gray-400 mt-0.5">Isi data dulu, lalu klik &quot;Buka Demo Sekarang&quot;.</p>
-              </div>
-              <button type="button" onClick={() => setDemoOpen(false)} aria-label="Tutup">
-                <X className="w-5 h-5 text-gray-400" />
-              </button>
-            </div>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input value={demoName} onChange={(e) => setDemoName(e.target.value)} placeholder="Nama lengkap" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={demoPhone} onChange={(e) => setDemoPhone(e.target.value)} placeholder="No HP aktif" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={demoEmail} onChange={(e) => setDemoEmail(e.target.value)} placeholder="Email aktif" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={demoBusinessName} onChange={(e) => setDemoBusinessName(e.target.value)} placeholder="Nama usaha" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={demoBusinessType} onChange={(e) => setDemoBusinessType(e.target.value)} placeholder="Jenis usaha" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={demoAddress} onChange={(e) => setDemoAddress(e.target.value)} placeholder="Alamat usaha" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-            </div>
-            <button type="button" onClick={() => void submitDemoForm()} className="mt-4 w-full py-3 rounded-xl bg-teal-500 hover:bg-teal-600 text-white font-semibold">
-              Buka Demo Sekarang
-            </button>
-          </div>
-        </div>
-      )}
-
-      {checkoutOpen && (
-        <div className="fixed inset-0 z-[70] bg-black/70 p-4 flex items-center justify-center">
-          <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0F172A] p-5">
-            <div className="flex items-center justify-between">
-              <h4 className="font-bold text-white">Checkout Omnifyi POS</h4>
-              <button type="button" onClick={() => setCheckoutOpen(false)} aria-label="Tutup">
-                <X className="w-5 h-5 text-gray-400" />
-              </button>
-            </div>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input value={checkoutName} onChange={(e) => setCheckoutName(e.target.value)} placeholder="Nama" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={checkoutPhone} onChange={(e) => setCheckoutPhone(e.target.value)} placeholder="No HP" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-              <input value={checkoutEmail} onChange={(e) => setCheckoutEmail(e.target.value)} placeholder="Email" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
-            </div>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
-              <button type="button" onClick={() => void checkout('starter')} className="py-2 rounded-lg border border-white/20 text-white">
-                Bulanan
-              </button>
-              <button type="button" onClick={() => void checkout('growth')} className="py-2 rounded-lg border border-white/20 text-white">
-                Growth
-              </button>
-              <button type="button" onClick={() => void checkout('pro')} className="py-2 rounded-lg bg-teal-500 text-white font-semibold">
-                Lifetime
-              </button>
-            </div>
-            {midtransEnabled && checkoutRedirectUrl && (
-              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <a href={checkoutRedirectUrl} target="_blank" rel="noreferrer" className="py-2 rounded-lg border border-white/20 text-white text-center">
-                  Buka pembayaran
+        {superAdminChoiceOpen && (
+          <div className="fixed inset-0 z-[73] bg-black/70 p-4 flex items-center justify-center">
+            <div className="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-[#0F172A] p-5">
+              <h4 className="text-white font-bold text-lg">Super Admin Terdeteksi</h4>
+              <p className="text-sm text-gray-400 mt-1">Pilih tujuan masuk:</p>
+              <div className="mt-4 grid grid-cols-1 gap-2">
+                <a href="/admin" className="w-full py-3 text-center rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">
+                  Masuk Admin LP
                 </a>
-                <button type="button" onClick={() => void confirmPaid()} className="py-2 rounded-lg bg-blue-600 text-white font-semibold">
-                  Saya sudah bayar
+                <a href="/dashboard" className="w-full py-3 text-center rounded-xl border border-white/20 text-white">
+                  Masuk Aplikasi
+                </a>
+                <button type="button" onClick={() => setSuperAdminChoiceOpen(false)} className="w-full py-2 text-sm text-gray-400">
+                  Tutup
                 </button>
               </div>
-            )}
-            {!!status && <p className="mt-3 text-sm text-teal-300">{status}</p>}
+            </div>
           </div>
-        </div>
-      )}
-    </MarketingLayout>
+        )}
+
+        {demoOpen && (
+          <div className="fixed inset-0 z-[72] bg-black/70 p-4 flex items-center justify-center">
+            <div className="w-full max-w-xl rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-[#0F172A] to-[#111827] p-5 shadow-xl shadow-emerald-500/10">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-bold text-white text-lg">Form Demo Aplikasi Omnifyi POS</h4>
+                  <p className="text-xs text-gray-400 mt-0.5">Isi data dulu, lalu klik &quot;Buka Demo Sekarang&quot;.</p>
+                </div>
+                <button type="button" onClick={() => setDemoOpen(false)} aria-label="Tutup">
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={demoName} onChange={(e) => setDemoName(e.target.value)} placeholder="Nama lengkap" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={demoPhone} onChange={(e) => setDemoPhone(e.target.value)} placeholder="No HP aktif" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={demoEmail} onChange={(e) => setDemoEmail(e.target.value)} placeholder="Email aktif" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={demoBusinessName} onChange={(e) => setDemoBusinessName(e.target.value)} placeholder="Nama usaha" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={demoBusinessType} onChange={(e) => setDemoBusinessType(e.target.value)} placeholder="Jenis usaha" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={demoAddress} onChange={(e) => setDemoAddress(e.target.value)} placeholder="Alamat usaha" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+              </div>
+              <button type="button" onClick={() => void submitDemoForm()} className="mt-4 w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">
+                Buka Demo Sekarang
+              </button>
+            </div>
+          </div>
+        )}
+
+        {checkoutOpen && (
+          <div className="fixed inset-0 z-[210] bg-black/70 p-4 flex items-center justify-center">
+            <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0F172A] p-5">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-white">Checkout Omnifyi POS</h4>
+                <button type="button" onClick={() => setCheckoutOpen(false)} aria-label="Tutup">
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input value={checkoutName} onChange={(e) => setCheckoutName(e.target.value)} placeholder="Nama" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={checkoutPhone} onChange={(e) => setCheckoutPhone(e.target.value)} placeholder="No HP" className="px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+                <input value={checkoutEmail} onChange={(e) => setCheckoutEmail(e.target.value)} placeholder="Email" className="sm:col-span-2 px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
+              </div>
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <button type="button" onClick={() => void checkout('starter')} className="py-2 rounded-lg border border-white/20 text-white">
+                  Bulanan
+                </button>
+                <button type="button" onClick={() => void checkout('growth')} className="py-2 rounded-lg border border-white/20 text-white">
+                  Growth
+                </button>
+                <button type="button" onClick={() => void checkout('pro')} className="py-2 rounded-lg bg-emerald-500 text-white font-semibold">
+                  Lifetime
+                </button>
+              </div>
+              {midtransEnabled && checkoutRedirectUrl && (
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <a href={checkoutRedirectUrl} target="_blank" rel="noreferrer" className="py-2 rounded-lg border border-white/20 text-white text-center">
+                    Buka pembayaran
+                  </a>
+                  <button type="button" onClick={() => void confirmPaid()} className="py-2 rounded-lg bg-blue-600 text-white font-semibold">
+                    Saya sudah bayar
+                  </button>
+                </div>
+              )}
+              {!!status && <p className="mt-3 text-sm text-emerald-300">{status}</p>}
+            </div>
+          </div>
+        )}
+      </LandingIntegrationProvider>
+    </CmsProvider>
   );
 }
