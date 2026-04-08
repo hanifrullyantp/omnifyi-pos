@@ -1,10 +1,12 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore, useSyncStore } from './lib/store';
 import { db, seedInitialData, seedDemoWorkspace, Cashier, resetDemoData } from './lib/db';
 import { logActivity, formatActivityAction } from './lib/activityLog';
 import { getSupabase, SUPABASE_ENV_SETUP_HINT } from './lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from './lib/cloudProvision';
+import { formatProvisionError, formatSupabaseSignInError } from './lib/authLoginErrors';
 import { installSyncHooks } from './lib/syncHooks';
 import { pullAllChangesForTenant } from './lib/pullChanges';
 import { applyTheme, getInitialThemeMode, persistThemeMode, resolveTheme, ThemeMode } from './lib/theme';
@@ -169,6 +171,7 @@ const OwnerLoginScreen = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [errorShakeKey, setErrorShakeKey] = useState(0);
   const [demoSignupOpen, setDemoSignupOpen] = useState(false);
   const [demoName, setDemoName] = useState('');
   const [demoPhone, setDemoPhone] = useState('');
@@ -235,29 +238,48 @@ const OwnerLoginScreen = () => {
 
   const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
+  const flashLoginError = (msg: string) => {
+    setError(msg);
+    setErrorShakeKey((k) => k + 1);
+  };
+
   const loginCredentials = async (e: string, p: string) => {
     const emailNorm = e.trim().toLowerCase();
     const pass = p.trim();
     const sb = getSupabase();
     if (!sb) {
-      setError(SUPABASE_ENV_SETUP_HINT);
+      flashLoginError(SUPABASE_ENV_SETUP_HINT);
       return false;
     }
-    const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: pass });
-    if (error || !data.user) {
-      setError('Email atau password salah');
+    const { data, error: authErr } = await sb.auth.signInWithPassword({ email: emailNorm, password: pass });
+    if (authErr) {
+      // eslint-disable-next-line no-console
+      console.error('[Omnifyi login] signInWithPassword', authErr.code, authErr.message);
+      flashLoginError(formatSupabaseSignInError(authErr));
       return false;
     }
-    const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
-    const { user, tenant, business } = await ensureLocalCoreRows({
-      userId: data.user.id,
-      email: emailNorm,
-      tenantId,
-      businessId,
-      businessName: 'Usaha Baru',
-    });
-    setAuth(user, tenant, business, [business]);
-    return true;
+    if (!data.user) {
+      flashLoginError('Email atau password salah');
+      return false;
+    }
+    try {
+      const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+      const { user, tenant, business } = await ensureLocalCoreRows({
+        userId: data.user.id,
+        email: emailNorm,
+        tenantId,
+        businessId,
+        businessName: 'Usaha Baru',
+      });
+      setAuth(user, tenant, business, [business]);
+      return true;
+    } catch (provErr) {
+      // eslint-disable-next-line no-console
+      console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
+      await sb.auth.signOut();
+      flashLoginError(formatProvisionError(provErr));
+      return false;
+    }
   };
 
   const handleLogin = async () => {
@@ -266,7 +288,7 @@ const OwnerLoginScreen = () => {
     try {
       await loginCredentials(email.trim(), password);
     } catch (err) {
-      setError('Terjadi kesalahan');
+      flashLoginError('Terjadi kesalahan tak terduga. Buka konsol browser untuk detail.');
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -534,11 +556,29 @@ const OwnerLoginScreen = () => {
             <h3 className="text-xl font-bold text-white mb-1">Selamat Datang di {cms.brandName || 'Omnifyi POS'}</h3>
             <p className="text-sm text-slate-400 mb-6">Landing + login untuk `{cms.landingUrl || 'https://pos.omnifyi.com'}`</p>
 
-            {error && (
-              <div className="mb-4 p-3 rounded-xl border border-rose-500/30 bg-rose-950/40 text-rose-200 text-sm">
-                {error}
-              </div>
-            )}
+            <AnimatePresence mode="wait">
+              {error && (
+                <motion.div
+                  key={errorShakeKey}
+                  role="alert"
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    x: [0, -10, 10, -8, 8, -4, 4, 0],
+                  }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{
+                    opacity: { duration: 0.2 },
+                    y: { duration: 0.2 },
+                    x: { duration: 0.45, ease: 'easeInOut' },
+                  }}
+                  className="mb-4 p-3 rounded-xl border border-rose-500/30 bg-rose-950/40 text-rose-200 text-sm"
+                >
+                  {error}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <div className="space-y-4">
               <div>
@@ -590,7 +630,7 @@ const OwnerLoginScreen = () => {
                 disabled={isLoading}
                 className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-emerald-400 to-lime-400 text-slate-900 shadow-lg shadow-emerald-500/25 hover:brightness-110 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.99]"
               >
-                {isLoading ? 'Memproses...' : 'Masuk'}
+                {isLoading ? 'Memverifikasi…' : 'Masuk'}
                 {!isLoading && <ArrowRight className="w-4 h-4" />}
               </button>
             </div>

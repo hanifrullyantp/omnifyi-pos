@@ -1,10 +1,40 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { EditableText, EditableList, cn } from './EditableElements';
 import { useCms } from '../context/CmsContext';
+import type { LucideIcon } from 'lucide-react';
 import {
-  XCircle, CheckCircle2, ChevronRight, Activity, Users, Boxes,
-  Smartphone, BarChart3, CloudOff, Globe, Lock, ArrowRight, Video, PlayCircle
+  XCircle,
+  CheckCircle2,
+  ChevronRight,
+  Activity,
+  Users,
+  Smartphone,
+  BarChart3,
+  CloudOff,
+  Globe,
+  Lock,
+  ArrowRight,
+  Video,
+  PlayCircle,
+  WifiOff,
+  LayoutDashboard,
+  Wallet,
+  Package,
+  ShieldCheck,
+  KeyRound,
+  FileSearch,
+  Clock,
+  Calculator,
+  FileBarChart,
+  Download,
+  Building2,
+  DownloadCloud,
+  ShoppingCart,
+  TrendingUp,
+  BellRing,
+  Plug,
+  Rocket,
 } from 'lucide-react';
 
 export const ProblemDetails = () => {
@@ -124,52 +154,126 @@ export const Transition = () => {
   );
 };
 
-const iconMap: Record<string, any> = {
+/** Ikon premium per judul fitur (bukan emoji). Judul disesuaikan dengan default CMS. */
+const featureIconByTitle: Record<string, LucideIcon> = {
+  'Mobile Friendly': Smartphone,
+  'Offline Ready': WifiOff,
+  'Realtime Dashboard': LayoutDashboard,
+  'Kontrol Kas': Wallet,
+  Inventori: Package,
+  'Akses Role': ShieldCheck,
+  'PIN Kasir': KeyRound,
+  'Audit Trail': FileSearch,
+  Shift: Clock,
+  CRM: Users,
+  Akuntansi: Calculator,
+  Laporan: FileBarChart,
+  'Ekspor Data': Download,
+  'Multi Outlet': Building2,
+  'PWA Install': DownloadCloud,
+  'Order Online': ShoppingCart,
+  'Business Insights': TrendingUp,
+  'Stok Alert': BellRing,
+  'Integrasi API': Plug,
+  'Keamanan Data': Lock,
+  'Onboarding Cepat': Rocket,
+  // judul lama / alias agar ikon tetap muncul setelah edit ringan
   'Kasir On/Offline': CloudOff,
-  'Akuntansi': BarChart3,
   'Aplikasi CRM': Users,
   'Dashboard Realtime': Activity,
-  'Karyawan': Lock,
-  'Inventori': Boxes,
-  'Analisa Bisnis': Activity,
-  'Order Online': Globe,
-  'Business Plan': Activity
+  Karyawan: ShieldCheck,
+  'Analisa Bisnis': TrendingUp,
+  'Business Plan': BarChart3,
 };
+
+const FEATURES_PREVIEW_COUNT = 6;
 
 export const Features = () => {
   const { data } = useCms();
-  
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
+  const items = data.features.items;
+  const hasMore = items.length > FEATURES_PREVIEW_COUNT;
+
   return (
     <section className="py-24 bg-slate-950 relative">
       <div className="container mx-auto px-4 lg:px-8">
         <div className="text-center mb-20">
-          <EditableText 
-            path="features.headline" 
-            tag="h2" 
+          <EditableText
+            path="features.headline"
+            tag="h2"
             className="text-3xl md:text-5xl font-extrabold text-white mb-6 tracking-tight"
           />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {data.features.items.map((item, i) => {
-            const Icon = iconMap[item.title] || Activity;
+          {items.map((item, i) => {
+            if (!showAllFeatures && i >= FEATURES_PREVIEW_COUNT) return null;
+
+            const Icon = featureIconByTitle[item.title] ?? Activity;
+
             return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.05 }}
-                className="bg-slate-900 border border-slate-800 p-8 rounded-3xl hover:border-slate-700 hover:bg-slate-800/80 transition-all group"
-              >
-                <div className="w-14 h-14 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                  <Icon className="text-emerald-500" size={28} />
-                </div>
-                <EditableText path={`features.items.${i}.title`} tag="h3" className="text-xl font-bold text-white mb-3" />
-                <EditableText path={`features.items.${i}.desc`} tag="p" className="text-slate-400 leading-relaxed" />
-              </motion.div>
+              <React.Fragment key={`${item.title}-${i}`}>
+                {showAllFeatures && hasMore && i === FEATURES_PREVIEW_COUNT && (
+                  <div className="col-span-1 md:col-span-2 lg:col-span-3 mt-4 mb-2 text-center">
+                    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
+                      Fitur/Manfaat Lainnya
+                    </p>
+                    <div className="mx-auto mt-3 h-px max-w-xs bg-gradient-to-r from-transparent via-emerald-500/50 to-transparent" />
+                  </div>
+                )}
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ delay: Math.min(i, 12) * 0.04 }}
+                  className="bg-slate-900 border border-slate-800 p-8 rounded-3xl hover:border-emerald-500/25 hover:bg-slate-800/80 transition-all group shadow-lg shadow-black/20"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-950 to-slate-900 border border-slate-700/80 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:border-emerald-500/30 transition-all shadow-inner">
+                    <Icon className="text-emerald-400" size={26} strokeWidth={1.75} />
+                  </div>
+                  <EditableText path={`features.items.${i}.title`} tag="h3" className="text-xl font-bold text-white mb-3" />
+                  <EditableText path={`features.items.${i}.desc`} tag="p" className="text-slate-400 leading-relaxed" />
+                </motion.div>
+              </React.Fragment>
             );
           })}
+
+          {!showAllFeatures && hasMore && (
+            <div className="col-span-1 md:col-span-2 lg:col-span-3 flex flex-col items-center justify-center pt-6 pb-2">
+              <motion.button
+                type="button"
+                onClick={() => setShowAllFeatures(true)}
+                className="relative rounded-full px-5 py-2.5 text-sm md:text-base font-semibold text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/60"
+                animate={{
+                  scale: [1, 1.06, 1],
+                  filter: [
+                    'drop-shadow(0 0 6px rgba(52, 211, 153, 0.45))',
+                    'drop-shadow(0 0 16px rgba(52, 211, 153, 0.95))',
+                    'drop-shadow(0 0 6px rgba(52, 211, 153, 0.45))',
+                  ],
+                }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+                whileHover={{ scale: 1.08 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <span className="relative z-10 bg-gradient-to-r from-emerald-300 via-emerald-400 to-teal-300 bg-clip-text text-transparent">
+                  fitur lainnya klik disini
+                </span>
+              </motion.button>
+            </div>
+          )}
+
+          {showAllFeatures && hasMore && (
+            <div className="col-span-1 md:col-span-2 lg:col-span-3 flex justify-center pt-4">
+              <button
+                type="button"
+                onClick={() => setShowAllFeatures(false)}
+                className="text-sm text-slate-500 hover:text-emerald-400/90 underline-offset-4 hover:underline transition-colors"
+              >
+                Tampilkan lebih ringkas
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>

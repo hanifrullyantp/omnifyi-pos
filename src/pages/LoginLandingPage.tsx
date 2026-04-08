@@ -5,6 +5,7 @@ import { useAuthStore } from '../lib/store';
 import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../lib/billingFlow';
 import { getSupabase, SUPABASE_ENV_SETUP_HINT } from '../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../lib/cloudProvision';
+import { formatProvisionError, formatSupabaseSignInError } from '../lib/authLoginErrors';
 import { getLandingReturningUser, setLandingReturningUser } from '../lib/landingReturningUser';
 import { CmsProvider } from '../salesPageBaru/context/CmsContext';
 import { LandingIntegrationProvider, type SalesLeadFormPayload } from '../salesPageBaru/context/LandingIntegrationContext';
@@ -47,42 +48,87 @@ export default function LoginLandingPage() {
   const [checkoutOrderId, setCheckoutOrderId] = useState('');
   const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
   const [status, setStatus] = useState('');
+  const [statusShakeKey, setStatusShakeKey] = useState(0);
+  const [statusTone, setStatusTone] = useState<'neutral' | 'error' | 'info'>('neutral');
+  const [loginBusy, setLoginBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+
+  const bumpStatus = (msg: string, tone: 'error' | 'info' | 'neutral' = 'error') => {
+    setStatus(msg);
+    setStatusTone(tone === 'neutral' ? 'neutral' : tone);
+    if (tone !== 'neutral') setStatusShakeKey((k) => k + 1);
+  };
 
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
 
   const loginOwner = async () => {
-    await seedInitialData();
-    const emailNorm = email.trim().toLowerCase();
-    const passInput = password.trim();
-
-    if (emailNorm === DEMO_OWNER_EMAIL) {
-      await seedDemoWorkspace();
-      const user = await db.users.where('email').equals(emailNorm).first();
-      if (!user) return setStatus('Akun demo tidak ditemukan');
-      if (passInput !== user.passwordHash) return setStatus('Password salah');
-      const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
-      const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
-      if (!tenant || businesses.length === 0) return setStatus('Usaha demo tidak ditemukan');
-      setLandingReturningUser();
-      setAuth(user, tenant, businesses[0], businesses);
-    } else {
-      const sb = getSupabase();
-      if (!sb) return setStatus(SUPABASE_ENV_SETUP_HINT);
-      const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
-      if (error || !data.user) return setStatus('Email atau password salah');
-      const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
-      const { user, tenant, business } = await ensureLocalCoreRows({
-        userId: data.user.id,
-        email: emailNorm,
-        tenantId,
-        businessId,
-        businessName: 'Usaha Baru',
-      });
-      setLandingReturningUser();
-      setAuth(user, tenant, business, [business]);
-    }
+    setLoginBusy(true);
     setStatus('');
+    setStatusTone('neutral');
+    try {
+      await seedInitialData();
+      const emailNorm = email.trim().toLowerCase();
+      const passInput = password.trim();
+
+      if (emailNorm === DEMO_OWNER_EMAIL) {
+        await seedDemoWorkspace();
+        const user = await db.users.where('email').equals(emailNorm).first();
+        if (!user) {
+          bumpStatus('Akun demo tidak ditemukan');
+          return;
+        }
+        if (passInput !== user.passwordHash) {
+          bumpStatus('Password salah');
+          return;
+        }
+        const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
+        const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
+        if (!tenant || businesses.length === 0) {
+          bumpStatus('Usaha demo tidak ditemukan');
+          return;
+        }
+        setLandingReturningUser();
+        setAuth(user, tenant, businesses[0], businesses);
+      } else {
+        const sb = getSupabase();
+        if (!sb) {
+          bumpStatus(SUPABASE_ENV_SETUP_HINT, 'info');
+          return;
+        }
+        const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
+        if (error) {
+          // eslint-disable-next-line no-console
+          console.error('[Omnifyi login] signInWithPassword', error.code, error.message);
+          bumpStatus(formatSupabaseSignInError(error));
+          return;
+        }
+        if (!data.user) {
+          bumpStatus('Email atau password salah');
+          return;
+        }
+        try {
+          const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+          const { user, tenant, business } = await ensureLocalCoreRows({
+            userId: data.user.id,
+            email: emailNorm,
+            tenantId,
+            businessId,
+            businessName: 'Usaha Baru',
+          });
+          setLandingReturningUser();
+          setAuth(user, tenant, business, [business]);
+        } catch (provErr) {
+          // eslint-disable-next-line no-console
+          console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
+          await sb.auth.signOut();
+          bumpStatus(formatProvisionError(provErr));
+        }
+      }
+      setStatus('');
+      setStatusTone('neutral');
+    } finally {
+      setLoginBusy(false);
+    }
   };
 
   const loginDemoOwner = async () => {
@@ -236,6 +282,9 @@ export default function LoginLandingPage() {
       email={email}
       password={password}
       status={status}
+      statusShakeKey={statusShakeKey}
+      statusTone={statusTone}
+      loginBusy={loginBusy}
       resetBusy={resetBusy}
       onEmailChange={setEmail}
       onPasswordChange={setPassword}

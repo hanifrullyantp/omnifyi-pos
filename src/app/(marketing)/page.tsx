@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, X } from 'lucide-react';
 import { db, seedInitialData, seedDemoWorkspace, DEMO_OWNER_EMAIL } from '../../lib/db';
 import { useAuthStore } from '../../lib/store';
@@ -7,6 +8,7 @@ import MarketingLayout from './layout';
 import { defaultLandingContent, loadLandingContent, type LandingContent } from '../../lib/landingContent';
 import { getSupabase, SUPABASE_ENV_SETUP_HINT } from '../../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../../lib/cloudProvision';
+import { formatProvisionError, formatSupabaseSignInError } from '../../lib/authLoginErrors';
 
 export default function MarketingPage() {
   const { setAuth } = useAuthStore();
@@ -29,6 +31,8 @@ export default function MarketingPage() {
   const [checkoutOrderId, setCheckoutOrderId] = useState('');
   const [checkoutRedirectUrl, setCheckoutRedirectUrl] = useState('');
   const [status, setStatus] = useState('');
+  const [loginModalShakeKey, setLoginModalShakeKey] = useState(0);
+  const [loginBusy, setLoginBusy] = useState(false);
   const [content, setContent] = useState<LandingContent>(defaultLandingContent);
   const [socialText, setSocialText] = useState('');
   const [socialVisible, setSocialVisible] = useState(false);
@@ -79,37 +83,77 @@ export default function MarketingPage() {
     };
   }, [content, maxMs, minMs]);
 
-  const loginOwner = async () => {
-    await seedInitialData();
-    const emailNorm = email.trim().toLowerCase();
-    const passInput = password.trim();
+  const bumpLoginModal = (msg: string) => {
+    setStatus(msg);
+    setLoginModalShakeKey((k) => k + 1);
+  };
 
-    if (emailNorm === DEMO_OWNER_EMAIL) {
-      await seedDemoWorkspace();
-      const user = await db.users.where('email').equals(emailNorm).first();
-      if (!user) return setStatus('Akun demo tidak ditemukan');
-      if (passInput !== user.passwordHash) return setStatus('Password salah');
-      const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
-      const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
-      if (!tenant || businesses.length === 0) return setStatus('Usaha demo tidak ditemukan');
-      setAuth(user, tenant, businesses[0], businesses);
-    } else {
-      const sb = getSupabase();
-      if (!sb) return setStatus(SUPABASE_ENV_SETUP_HINT);
-      const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
-      if (error || !data.user) return setStatus('Email atau password salah');
-      const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
-      const { user, tenant, business } = await ensureLocalCoreRows({
-        userId: data.user.id,
-        email: emailNorm,
-        tenantId,
-        businessId,
-        businessName: 'Usaha Baru',
-      });
-      setAuth(user, tenant, business, [business]);
-    }
-    setLoginOpen(false);
+  const loginOwner = async () => {
+    setLoginBusy(true);
     setStatus('');
+    try {
+      await seedInitialData();
+      const emailNorm = email.trim().toLowerCase();
+      const passInput = password.trim();
+
+      if (emailNorm === DEMO_OWNER_EMAIL) {
+        await seedDemoWorkspace();
+        const user = await db.users.where('email').equals(emailNorm).first();
+        if (!user) {
+          bumpLoginModal('Akun demo tidak ditemukan');
+          return;
+        }
+        if (passInput !== user.passwordHash) {
+          bumpLoginModal('Password salah');
+          return;
+        }
+        const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
+        const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
+        if (!tenant || businesses.length === 0) {
+          bumpLoginModal('Usaha demo tidak ditemukan');
+          return;
+        }
+        setAuth(user, tenant, businesses[0], businesses);
+      } else {
+        const sb = getSupabase();
+        if (!sb) {
+          bumpLoginModal(SUPABASE_ENV_SETUP_HINT);
+          return;
+        }
+        const { data, error: authErr } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
+        if (authErr) {
+          // eslint-disable-next-line no-console
+          console.error('[Omnifyi login] signInWithPassword', authErr.code, authErr.message);
+          bumpLoginModal(formatSupabaseSignInError(authErr));
+          return;
+        }
+        if (!data.user) {
+          bumpLoginModal('Email atau password salah');
+          return;
+        }
+        try {
+          const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+          const { user, tenant, business } = await ensureLocalCoreRows({
+            userId: data.user.id,
+            email: emailNorm,
+            tenantId,
+            businessId,
+            businessName: 'Usaha Baru',
+          });
+          setAuth(user, tenant, business, [business]);
+        } catch (provErr) {
+          // eslint-disable-next-line no-console
+          console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
+          await sb.auth.signOut();
+          bumpLoginModal(formatProvisionError(provErr));
+          return;
+        }
+      }
+      setLoginOpen(false);
+      setStatus('');
+    } finally {
+      setLoginBusy(false);
+    }
   };
 
   const loginDemoOwner = async () => {
@@ -333,7 +377,33 @@ export default function MarketingPage() {
               <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
               <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" type="password" className="w-full px-3 py-2 rounded-xl bg-black/25 border border-white/15 text-white" />
             </div>
-            <button onClick={() => void loginOwner()} className="mt-4 w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">Masuk</button>
+            <AnimatePresence mode="wait">
+              {!!status && (
+                <motion.div
+                  key={loginModalShakeKey}
+                  role="alert"
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{
+                    opacity: 1,
+                    y: 0,
+                    x: [0, -8, 8, -6, 6, 0],
+                  }}
+                  exit={{ opacity: 0 }}
+                  transition={{ x: { duration: 0.42, ease: 'easeInOut' } }}
+                  className="mt-3 rounded-xl border border-rose-500/35 bg-rose-950/40 px-3 py-2 text-sm text-rose-200"
+                >
+                  {status}
+                </motion.div>
+              )}
+            </AnimatePresence>
+            <button
+              type="button"
+              disabled={loginBusy}
+              onClick={() => void loginOwner()}
+              className="mt-4 w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {loginBusy ? 'Memverifikasi…' : 'Masuk'}
+            </button>
           </div>
         </div>
       )}
