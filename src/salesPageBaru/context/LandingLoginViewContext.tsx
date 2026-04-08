@@ -7,6 +7,10 @@ type LandingLoginViewContextValue = {
   revealLogin: () => void;
   /** Naikkan untuk memicu animasi perhatian pada kartu login. */
   formPulseKey: number;
+  /** Popup "Coba Gratis" (lead form) — state di-hoist ke LoginLandingPage. */
+  leadFormOpen: boolean;
+  openLeadForm: () => void;
+  closeLeadForm: () => void;
 };
 
 const LandingLoginViewContext = createContext<LandingLoginViewContextValue | null>(null);

@@ -1,5 +1,7 @@
 import React, { useCallback, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X } from 'lucide-react';
+import type { User } from '../lib/db';
 import { db, seedInitialData, seedDemoWorkspace, DEMO_OWNER_EMAIL, resetDemoData } from '../lib/db';
 import { useAuthStore } from '../lib/store';
 import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../lib/billingFlow';
@@ -14,10 +16,12 @@ import { SalesBaruPageContent } from '../salesPageBaru/SalesBaruPageContent';
 import { SalesLoginCard } from '../components/salesLanding/SalesLoginCard';
 
 export default function LoginLandingPage() {
+  const navigate = useNavigate();
   const { setAuth } = useAuthStore();
   const currentUser = useAuthStore((s) => s.currentUser);
   const [returningUser, setReturningUser] = useState(() => getLandingReturningUser());
   const [formPulseKey, setFormPulseKey] = useState(0);
+  const [leadFormOpen, setLeadFormOpen] = useState(false);
 
   const showAuthPanel = !currentUser && returningUser;
 
@@ -25,10 +29,9 @@ export default function LoginLandingPage() {
     setLandingReturningUser();
     setReturningUser(true);
     setFormPulseKey((k) => k + 1);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.setTimeout(() => {
-      document.getElementById('auth-login')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 420);
+    window.requestAnimationFrame(() => {
+      document.getElementById('auth-login')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
   }, []);
   const [demoOpen, setDemoOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -40,7 +43,6 @@ export default function LoginLandingPage() {
   const [demoAddress, setDemoAddress] = useState('');
   const [demoBusinessType, setDemoBusinessType] = useState('');
   const [demoBusinessName, setDemoBusinessName] = useState('');
-  const [superAdminChoiceOpen, setSuperAdminChoiceOpen] = useState(false);
   const [checkoutName, setCheckoutName] = useState('');
   const [checkoutPhone, setCheckoutPhone] = useState('');
   const [checkoutEmail, setCheckoutEmail] = useState('');
@@ -60,6 +62,14 @@ export default function LoginLandingPage() {
   };
 
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
+
+  const goAfterLogin = (user: User) => {
+    if (user.role === 'ADMIN_SYSTEM') {
+      navigate('/admin', { replace: true });
+      return;
+    }
+    navigate('/dashboard', { replace: true });
+  };
 
   const loginOwner = async () => {
     setLoginBusy(true);
@@ -89,6 +99,7 @@ export default function LoginLandingPage() {
         }
         setLandingReturningUser();
         setAuth(user, tenant, businesses[0], businesses);
+        goAfterLogin(user);
       } else {
         const sb = getSupabase();
         if (!sb) {
@@ -117,6 +128,7 @@ export default function LoginLandingPage() {
           });
           setLandingReturningUser();
           setAuth(user, tenant, business, [business]);
+          goAfterLogin(user);
         } catch (provErr) {
           // eslint-disable-next-line no-console
           console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
@@ -142,6 +154,7 @@ export default function LoginLandingPage() {
     if (businesses.length === 0) return setStatus('Bisnis demo tidak ditemukan');
     setLandingReturningUser();
     setAuth(user, tenant, businesses[0], businesses);
+    goAfterLogin(user);
   };
 
   const validPhone = (v: string) => /^(\+?62|0)8[0-9]{7,13}$/.test(v.replace(/\s+/g, ''));
@@ -291,6 +304,10 @@ export default function LoginLandingPage() {
       onLogin={() => void loginOwner()}
       onResetDemo={() => void handleResetDemo()}
       onOpenCheckout={() => setCheckoutOpen(true)}
+      onOpenCobaGratis={() => setLeadFormOpen(true)}
+      scrollToCobaGratis={() =>
+        document.querySelector<HTMLElement>('[data-hero-cta-free]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }
     />
   );
 
@@ -298,32 +315,19 @@ export default function LoginLandingPage() {
     <CmsProvider>
       <LandingIntegrationProvider persistLead={persistLead} openCheckoutModal={() => setCheckoutOpen(true)}>
         <LandingLoginViewProvider
-          value={{ showAuthPanel, revealLogin, formPulseKey }}
+          value={{
+            showAuthPanel,
+            revealLogin,
+            formPulseKey,
+            leadFormOpen,
+            openLeadForm: () => setLeadFormOpen(true),
+            closeLeadForm: () => setLeadFormOpen(false),
+          }}
         >
           <div className="bg-slate-950 min-h-screen text-slate-50 font-sans selection:bg-emerald-500/30 selection:text-emerald-200 scroll-smooth">
             <SalesBaruPageContent authPanel={authPanel} />
           </div>
         </LandingLoginViewProvider>
-
-        {superAdminChoiceOpen && (
-          <div className="fixed inset-0 z-[73] bg-black/70 p-4 flex items-center justify-center">
-            <div className="w-full max-w-md rounded-2xl border border-emerald-500/30 bg-[#0F172A] p-5">
-              <h4 className="text-white font-bold text-lg">Super Admin Terdeteksi</h4>
-              <p className="text-sm text-gray-400 mt-1">Pilih tujuan masuk:</p>
-              <div className="mt-4 grid grid-cols-1 gap-2">
-                <a href="/admin" className="w-full py-3 text-center rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold">
-                  Masuk Admin LP
-                </a>
-                <a href="/dashboard" className="w-full py-3 text-center rounded-xl border border-white/20 text-white">
-                  Masuk Aplikasi
-                </a>
-                <button type="button" onClick={() => setSuperAdminChoiceOpen(false)} className="w-full py-2 text-sm text-gray-400">
-                  Tutup
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {demoOpen && (
           <div className="fixed inset-0 z-[72] bg-black/70 p-4 flex items-center justify-center">

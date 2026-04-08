@@ -23,7 +23,11 @@ begin
   set
     encrypted_password = crypt(v_new_password, gen_salt('bf')),
     email_confirmed_at = coalesce(email_confirmed_at, now()),
-    updated_at = now()
+    updated_at = now(),
+    confirmation_token = coalesce(confirmation_token, ''),
+    recovery_token = coalesce(recovery_token, ''),
+    email_change = coalesce(email_change, ''),
+    email_change_token_new = coalesce(email_change_token_new, '')
   where id = v_uid;
 
   if not exists (select 1 from auth.identities i where i.user_id = v_uid and i.provider = 'email') then

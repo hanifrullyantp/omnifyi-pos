@@ -18,6 +18,8 @@ export interface CmsState {
     cta1: string;
     cta2: string;
     imageUrl: string;
+    /** URL video YouTube (watch / youtu.be / shorts) — dipakai tombol Demo Aplikasi. */
+    demoYoutubeUrl: string;
   };
   problem: {
     headline: string;
@@ -122,6 +124,7 @@ const initialState: CmsState = {
     cta1: 'Coba Gratis',
     cta2: 'Demo Aplikasi',
     imageUrl: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=2070&auto=format&fit=crop', // Data dashboard placeholder
+    demoYoutubeUrl: '',
   },
   problem: {
     headline: 'Bayangkan...',
@@ -352,9 +355,9 @@ export const CmsProvider = ({ children }: { children: ReactNode }) => {
     const saved = localStorage.getItem('omnifyi_sales_landing_cms_v1');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
-        // Ensure isAdmin and isLoggedIn are always false on first load
-        return { ...initialState, ...parsed, isAdmin: false, isLoggedIn: false };
+        const parsed = JSON.parse(saved) as Partial<CmsState>;
+        const hero = { ...initialState.hero, ...(parsed.hero ?? {}) };
+        return { ...initialState, ...parsed, hero, isAdmin: false, isLoggedIn: false };
       } catch (e) {
         return initialState;
       }

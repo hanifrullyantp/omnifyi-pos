@@ -16,6 +16,10 @@ type Props = {
   onLogin: () => void;
   onResetDemo: () => void;
   onOpenCheckout: () => void;
+  /** Lead form / Coba Gratis */
+  onOpenCobaGratis: () => void;
+  /** Scroll ke tombol Coba Gratis di hero */
+  scrollToCobaGratis: () => void;
   className?: string;
 };
 
@@ -32,6 +36,8 @@ export function SalesLoginCard({
   onLogin,
   onResetDemo,
   onOpenCheckout,
+  onOpenCobaGratis,
+  scrollToCobaGratis,
   className,
 }: Props) {
   const statusClass =
@@ -40,18 +46,31 @@ export function SalesLoginCard({
       : statusTone === 'info'
         ? 'text-amber-200 border border-amber-500/25 bg-amber-950/30'
         : 'text-teal-300 border border-teal-500/20 bg-teal-950/20';
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginBusy) onLogin();
+  };
+
   return (
     <div
       className={cn(
-        'rounded-2xl border border-teal-500/20 bg-slate-900/90 backdrop-blur-sm p-6 md:p-7 scroll-mt-28 shadow-2xl shadow-teal-500/10 ring-1 ring-white/[0.04]',
+        'rounded-2xl border border-teal-500/20 bg-slate-900/90 backdrop-blur-sm p-6 md:p-7 scroll-mt-24 shadow-2xl shadow-teal-500/10 ring-1 ring-white/[0.04]',
         className,
       )}
     >
       <div className="rounded-xl border border-amber-400/30 bg-amber-500/[0.12] px-3 py-2.5">
-        <p className="font-semibold text-amber-200 text-sm">Mode demo lokal</p>
-        <p className="mt-1 text-amber-100/75 text-xs leading-relaxed">
-          <span className="font-mono text-amber-200">owner@example.com</span> /{' '}
-          <span className="font-mono text-amber-200">password</span>
+        <p className="font-semibold text-amber-200 text-sm">Mode Demo:</p>
+        <p className="mt-1.5 text-amber-100/85 text-xs leading-relaxed">
+          Klik tombol{' '}
+          <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={scrollToCobaGratis}>
+            Coba Gratis
+          </button>{' '}
+          di atas, atau{' '}
+          <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={onOpenCobaGratis}>
+            klik di sini
+          </button>{' '}
+          untuk mencoba gratis aplikasi.
         </p>
       </div>
       <button
@@ -65,7 +84,7 @@ export function SalesLoginCard({
 
       <h3 className="mt-6 text-lg font-bold text-white">Masuk ke aplikasi</h3>
       <p className="text-xs text-slate-500 mt-0.5">Cloud: Supabase. Demo hanya di perangkat ini.</p>
-      <div className="mt-4 space-y-2">
+      <form onSubmit={submit} className="mt-4 space-y-2">
         <label className="block text-xs text-slate-400">Email</label>
         <input
           value={email}
@@ -83,15 +102,14 @@ export function SalesLoginCard({
           autoComplete="current-password"
           className="w-full px-3 py-2.5 rounded-xl bg-black/40 border border-teal-500/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/40"
         />
-      </div>
-      <button
-        type="button"
-        onClick={onLogin}
-        disabled={loginBusy}
-        className="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 text-white font-semibold text-sm hover:from-teal-400 hover:to-emerald-500 shadow-lg shadow-teal-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
-      >
-        {loginBusy ? 'Memverifikasi…' : 'Masuk'}
-      </button>
+        <button
+          type="submit"
+          disabled={loginBusy}
+          className="mt-5 w-full py-3 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 text-white font-semibold text-sm hover:from-teal-400 hover:to-emerald-500 shadow-lg shadow-teal-500/20 disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {loginBusy ? 'Memverifikasi…' : 'Masuk'}
+        </button>
+      </form>
       <p className="mt-4 text-center text-sm text-slate-400">
         Belum punya akun?{' '}
         <button type="button" onClick={onOpenCheckout} className="text-teal-400 hover:text-teal-300 font-medium">

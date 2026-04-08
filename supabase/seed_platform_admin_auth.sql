@@ -33,7 +33,11 @@ begin
     set
       encrypted_password = v_encrypted_pw,
       email_confirmed_at = coalesce(email_confirmed_at, now()),
-      updated_at = now()
+      updated_at = now(),
+      confirmation_token = coalesce(confirmation_token, ''),
+      recovery_token = coalesce(recovery_token, ''),
+      email_change = coalesce(email_change, ''),
+      email_change_token_new = coalesce(email_change_token_new, '')
     where id = v_user_id;
 
     if not exists (
@@ -83,7 +87,11 @@ begin
     raw_app_meta_data,
     raw_user_meta_data,
     created_at,
-    updated_at
+    updated_at,
+    confirmation_token,
+    recovery_token,
+    email_change,
+    email_change_token_new
   ) values (
     v_user_id,
     v_instance_id,
@@ -95,7 +103,11 @@ begin
     '{"provider":"email","providers":["email"]}',
     '{}',
     now(),
-    now()
+    now(),
+    '',
+    '',
+    '',
+    ''
   );
 
   insert into auth.identities (

@@ -3425,6 +3425,21 @@ const App = () => {
     );
   }
 
+  if (location.pathname === '/kelola-sales-landing') {
+    if (currentUser.role !== 'ADMIN_SYSTEM') {
+      return (
+        <AppErrorBoundary>
+          <Navigate to="/dashboard" replace />
+        </AppErrorBoundary>
+      );
+    }
+    return (
+      <AppErrorBoundary>
+        <LoginLandingPage />
+      </AppErrorBoundary>
+    );
+  }
+
   return (
     <AppErrorBoundary>
       <>

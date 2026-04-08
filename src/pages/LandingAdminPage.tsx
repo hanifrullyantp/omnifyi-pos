@@ -180,6 +180,13 @@ export default function LandingAdminPage() {
             Cek Edge
           </button>
           <a
+            href="/kelola-sales-landing"
+            className="px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-200 text-sm font-semibold hover:bg-emerald-500/10"
+            title="Edit hero/fitur landing penjualan (CmsContext, Mode Admin)"
+          >
+            CMS visual LP
+          </a>
+          <a
             href="/"
             target="_blank"
             rel="noreferrer"

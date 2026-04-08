@@ -17,6 +17,9 @@ export function formatSupabaseSignInError(error: AuthError): string {
   if (code === 'user_banned' || msg.includes('banned')) {
     return 'Akun ini dinonaktifkan. Cek Supabase Authentication → Users.';
   }
+  if (msg.includes('database error querying schema') || msg.includes('querying schema')) {
+    return 'Login gagal karena data user di Auth tidak lengkap (kolom token NULL — sering terjadi jika user dibuat lewat SQL). Buka Supabase → SQL Editor, jalankan migrasi supabase/migrations/20260408_fix_auth_users_null_tokens.sql, lalu coba login lagi. Atau hapus user itu dan buat ulang lewat Dashboard → Authentication → Users.';
+  }
 
   const trimmed = (error.message ?? '').trim();
   if (trimmed) return `Login gagal: ${trimmed}`;

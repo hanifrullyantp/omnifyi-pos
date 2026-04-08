@@ -1,13 +1,17 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useCms } from '../context/CmsContext';
 import { Settings, LogIn, LayoutDashboard } from 'lucide-react';
 import { cn } from './EditableElements';
 import { useLandingLoginView } from '../context/LandingLoginViewContext';
+import { useAuthStore } from '../../lib/store';
 
 export const Header = () => {
   const { data, toggleAdmin } = useCms();
   const { isAdmin } = data;
   const { revealLogin } = useLandingLoginView();
+  const authUser = useAuthStore((s) => s.currentUser);
+  const showCmsToggle = import.meta.env.DEV || authUser?.role === 'ADMIN_SYSTEM';
 
   const onMasukClick = () => {
     revealLogin();
@@ -25,7 +29,7 @@ export const Header = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            {import.meta.env.DEV && (
+            {showCmsToggle && (
               <div className="hidden sm:flex items-center gap-2 mr-4 border-r border-white/20 pr-4">
                 <button
                   type="button"
@@ -34,6 +38,14 @@ export const Header = () => {
                 >
                   <Settings size={14} /> Admin mode
                 </button>
+                {authUser?.role === 'ADMIN_SYSTEM' ? (
+                  <Link
+                    to="/kelola-sales-landing"
+                    className="text-xs text-slate-400 hover:text-emerald-300 transition"
+                  >
+                    Kelola LP
+                  </Link>
+                ) : null}
               </div>
             )}
 
