@@ -248,7 +248,7 @@ export default function HistoryPage({ initialTab }: { initialTab?: HistoryTab } 
   const firstWeekday = new Date(y, m0 - 1, 1).getDay();
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="ui-page">
       <header className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center gap-3">
         <Link to="/dashboard" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
           <ArrowLeft className="w-5 h-5" />
@@ -256,7 +256,7 @@ export default function HistoryPage({ initialTab }: { initialTab?: HistoryTab } 
         <h1 className="text-lg font-bold text-gray-900 dark:text-white">History &amp; Activity</h1>
       </header>
 
-      <div className="p-4 lg:p-8 max-w-5xl mx-auto space-y-6">
+      <div className="ui-container max-w-5xl space-y-6">
         <div className="flex rounded-xl bg-gray-100 dark:bg-gray-800 p-1 w-fit">
           <button
             type="button"

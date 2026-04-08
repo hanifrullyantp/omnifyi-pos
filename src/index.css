@@ -33,6 +33,24 @@
     --app-accent-red: #ef4444;
     --app-accent-yellow: #f59e0b;
     --app-accent-purple: #a371f7;
+    --ui-bg: #0b0f19;
+    --ui-surface: #121826;
+    --ui-surface-2: #182134;
+    --ui-surface-3: #202c44;
+    --ui-border: #2b364d;
+    --ui-text: #e5ecf7;
+    --ui-text-muted: #a4b2c8;
+    --ui-text-dim: #8090a8;
+    --ui-placeholder: #73839c;
+    --ui-shadow-sm: 0 2px 10px rgba(2, 6, 23, 0.25);
+    --ui-shadow-md: 0 8px 24px rgba(2, 6, 23, 0.35);
+    --ui-radius-sm: 8px;
+    --ui-radius-md: 12px;
+    --ui-radius-lg: 16px;
+    --ui-z-sticky: 20;
+    --ui-z-modal: 60;
+    --ui-motion-fast: 150ms;
+    --ui-motion-base: 200ms;
   }
   :root[data-theme='light'] {
     --app-bg: #f6f8fa;
@@ -47,12 +65,50 @@
     --app-accent-red: #ef4444;
     --app-accent-yellow: #f59e0b;
     --app-accent-purple: #a371f7;
+    --ui-bg: #f7f9fc;
+    --ui-surface: #ffffff;
+    --ui-surface-2: #f2f6fc;
+    --ui-surface-3: #e9effa;
+    --ui-border: #d9e1ef;
+    --ui-text: #111827;
+    --ui-text-muted: #4b5563;
+    --ui-text-dim: #6b7280;
+    --ui-placeholder: #9aa4b2;
+    --ui-shadow-sm: 0 2px 10px rgba(15, 23, 42, 0.06);
+    --ui-shadow-md: 0 8px 24px rgba(15, 23, 42, 0.1);
+    --ui-radius-sm: 8px;
+    --ui-radius-md: 12px;
+    --ui-radius-lg: 16px;
+    --ui-z-sticky: 20;
+    --ui-z-modal: 60;
+    --ui-motion-fast: 150ms;
+    --ui-motion-base: 200ms;
   }
   html, body, #root {
     max-width: 100%;
     overflow-x: hidden;
     background-color: var(--app-bg);
     color: var(--app-text);
+  }
+}
+
+@layer components {
+  .ui-page {
+    min-height: 100vh;
+    background: var(--ui-bg);
+    color: var(--ui-text);
+    padding-bottom: 5.5rem;
+  }
+  .ui-container {
+    width: 100%;
+    max-width: 80rem;
+    margin-inline: auto;
+    padding: 1rem;
+  }
+  @media (min-width: 768px) {
+    .ui-container {
+      padding: 1.5rem;
+    }
   }
 }
 

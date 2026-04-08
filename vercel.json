@@ -1,4 +1,36 @@
 {
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "omnifyi.com" }],
+      "destination": "/pos1",
+      "permanent": true
+    },
+    {
+      "source": "/dashboard/:path*",
+      "has": [{ "type": "host", "value": "omnifyi.com" }],
+      "destination": "https://pos.omnifyi.com/dashboard/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/admin",
+      "has": [{ "type": "host", "value": "omnifyi.com" }],
+      "destination": "https://pos.omnifyi.com/admin",
+      "permanent": true
+    },
+    {
+      "source": "/kelola-sales-landing",
+      "has": [{ "type": "host", "value": "omnifyi.com" }],
+      "destination": "https://pos.omnifyi.com/kelola-sales-landing",
+      "permanent": true
+    },
+    {
+      "source": "/pos1",
+      "has": [{ "type": "host", "value": "pos.omnifyi.com" }],
+      "destination": "/",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     {

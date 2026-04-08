@@ -251,7 +251,7 @@ export default function SettingsPage({ initialSection }: { initialSection?: Sect
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] dark:bg-[#111827] text-gray-900 dark:text-gray-100">
+    <div className="ui-page">
       <header className="sticky top-0 z-10 bg-white dark:bg-[#1F2937] border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center gap-3">
         <Link
           to="/dashboard"
@@ -263,7 +263,7 @@ export default function SettingsPage({ initialSection }: { initialSection?: Sect
         <h1 className="text-lg font-bold text-gray-900 dark:text-white">Pengaturan</h1>
       </header>
 
-      <div className="max-w-5xl mx-auto p-4 lg:p-8 flex flex-col lg:flex-row gap-6">
+      <div className="ui-container max-w-5xl flex flex-col lg:flex-row gap-6">
         <nav className="lg:w-56 shrink-0 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0">
           {SECTIONS.map((s) => (
             <button
@@ -272,8 +272,8 @@ export default function SettingsPage({ initialSection }: { initialSection?: Sect
               onClick={() => setSection(s.id)}
               className={`flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium whitespace-nowrap transition-colors min-h-[44px] ${
                 section === s.id
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-white dark:bg-[#1F2937] text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600'
+                  ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-md shadow-brand-500/20'
+                  : 'bg-[var(--ui-surface)] text-[var(--ui-text-muted)] border border-[var(--ui-border)] hover:bg-[var(--ui-surface-2)]'
               }`}
             >
               <s.icon className="w-4 h-4 shrink-0" />

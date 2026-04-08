@@ -5,6 +5,7 @@ import { Settings, LogIn, LayoutDashboard } from 'lucide-react';
 import { cn } from './EditableElements';
 import { useLandingLoginView } from '../context/LandingLoginViewContext';
 import { useAuthStore } from '../../lib/store';
+import { getAppPath } from '../../lib/routingTargets';
 
 export const Header = () => {
   const { data, toggleAdmin } = useCms();
@@ -68,7 +69,7 @@ export const Header = () => {
             )}
 
             <a
-              href="/dashboard"
+              href={getAppPath('/dashboard')}
               onClick={onBukaAppClick}
               className={cn(
                 'hidden sm:inline-flex px-5 py-2.5 rounded-full font-medium transition-all duration-300 items-center gap-2',

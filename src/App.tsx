@@ -2461,7 +2461,7 @@ const Dashboard = () => {
             {/* Navigation */}
             <nav className="flex-1 min-h-0 p-4 space-y-1">
               {sidebarItems.map((item) => {
-                const routeActive = item.href && location.pathname.startsWith(item.href);
+                const routeActive = isSidebarHrefActive(location.pathname, item.href);
                 const isActiveTab = item.href ? routeActive : activeTab === item.id;
                 const className = cn(
                   'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left font-medium',
@@ -3239,6 +3239,12 @@ const TodoItem = ({ todo }: { todo: any }) => {
 
 type AppScreen = 'dashboard' | 'pos-login' | 'pos' | 'cashier-dashboard';
 
+function isSidebarHrefActive(pathname: string, href?: string): boolean {
+  if (!href) return false;
+  if (href === '/dashboard') return pathname === '/dashboard';
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 const App = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [screen, setScreen] = useState<AppScreen>('dashboard');
@@ -3531,6 +3537,7 @@ const App = () => {
             path="/dashboard/super-admin"
             element={<DashboardWithPOS onGoToPOS={handleGoToPOS} screenChild={<SuperAdminPage />} />}
           />
+          <Route path="/pos1" element={<LoginLandingPage />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
@@ -3616,7 +3623,7 @@ const DashboardWithPOS = ({
 
             <nav className="flex-1 min-h-0 p-4 space-y-1">
               {sidebarItems.map((item) => {
-                const routeActive = item.href && location.pathname.startsWith(item.href);
+                const routeActive = isSidebarHrefActive(location.pathname, item.href);
                 const className = cn(
                   'w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 text-left font-medium',
                   routeActive

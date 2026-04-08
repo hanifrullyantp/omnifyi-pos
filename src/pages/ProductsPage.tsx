@@ -34,8 +34,8 @@ export const ProductsPage: React.FC<ProductsPageProps> = () => {
   };
 
   return (
-    <div className="products-theme min-h-screen bg-[var(--app-bg)] text-[var(--app-text)] pb-36 lg:pb-6 w-full min-w-0 max-w-full overflow-x-clip">
-      <div className="max-w-7xl mx-auto p-4 md:p-6 min-w-0 max-w-full">
+    <div className="products-theme ui-page w-full min-w-0 max-w-full overflow-x-clip">
+      <div className="ui-container max-w-7xl min-w-0 max-w-full">
         {/* Product List - always rendered but may trigger overlays */}
         <ProductList
           key={refreshKey}

@@ -35,6 +35,7 @@ import {
   OWNER_DRAW_CATEGORY,
 } from '../../lib/financeData';
 import { useFinanceShell } from './FinanceShellContext';
+import { Button, Card, EmptyState, Input, Select, StatCard } from '../ui';
 
 const INCOME_PRESETS = ['Penjualan lain', 'Bunga', 'Lain-lain (masuk)'];
 const EXPENSE_PRESETS = ['Operasional', 'Marketing', 'Utilitas', OWNER_DRAW_CATEGORY, 'Lain-lain (keluar)'];
@@ -135,56 +136,38 @@ export function FinanceCashflowTab() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium">Total Masuk</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(totalIn)}</p>
-        </div>
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p className="text-sm text-red-600 dark:text-red-400 font-medium">Total Keluar</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(totalOut)}</p>
-        </div>
-        <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-          <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">Saldo</p>
-          <p className="text-xl font-bold text-gray-900 dark:text-white">{formatCurrency(saldo)}</p>
-        </div>
+        <StatCard label="Total Masuk" value={formatCurrency(totalIn)} accent="success" />
+        <StatCard label="Total Keluar" value={formatCurrency(totalOut)} accent="danger" />
+        <StatCard label="Saldo" value={formatCurrency(saldo)} accent="primary" />
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => openQuick('INCOME')}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500 text-white font-medium text-sm hover:bg-emerald-600"
-        >
+        <Button onClick={() => openQuick('INCOME')} variant="primary">
           <ArrowDownLeft className="w-4 h-4" /> Pemasukan
-        </button>
-        <button
-          type="button"
-          onClick={() => openQuick('EXPENSE')}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500 text-white font-medium text-sm hover:bg-red-600"
-        >
+        </Button>
+        <Button onClick={() => openQuick('EXPENSE')} variant="danger">
           <ArrowUpRight className="w-4 h-4" /> Pengeluaran
-        </button>
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-3 items-end">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Tipe</label>
-          <select
+          <Select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}
-            className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
           >
             <option value="ALL">Semua</option>
             <option value="INCOME">Masuk</option>
             <option value="EXPENSE">Keluar</option>
-          </select>
+          </Select>
         </div>
         <div>
           <label className="block text-xs text-gray-500 mb-1">Kategori</label>
-          <select
+          <Select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm min-w-[160px]"
+            className="min-w-[160px]"
           >
             <option value="">Semua</option>
             {categories.map((c) => (
@@ -192,11 +175,11 @@ export function FinanceCashflowTab() {
                 {c}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-[480px] overflow-y-auto">
           {filtered.map((row) => (
             <button
@@ -232,10 +215,15 @@ export function FinanceCashflowTab() {
             </button>
           ))}
           {filtered.length === 0 && (
-            <p className="p-8 text-center text-gray-500 text-sm">Belum ada aliran kas di periode ini.</p>
+            <div className="p-4">
+              <EmptyState
+                title="Belum ada aliran kas"
+                description="Belum ada data pemasukan/pengeluaran pada periode ini."
+              />
+            </div>
           )}
         </div>
-      </div>
+      </Card>
 
       {showForm && (
         <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 p-4">
@@ -245,11 +233,11 @@ export function FinanceCashflowTab() {
             </h3>
             <div>
               <label className="text-xs text-gray-500">Tanggal</label>
-              <input
+              <Input
                 type="date"
                 value={form.date}
                 onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
-                className="mt-1 w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
+                className="mt-1"
               />
             </div>
             <div>

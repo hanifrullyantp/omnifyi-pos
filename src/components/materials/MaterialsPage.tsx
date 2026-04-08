@@ -213,7 +213,7 @@ export function MaterialsPage({ tenantId, businessId }: MaterialsPageProps) {
   }
 
   return (
-    <div className="materials-theme min-h-screen bg-[var(--app-bg)] text-sm md:text-base text-[var(--app-text)] pb-24 lg:pb-4 w-full min-w-0 max-w-full overflow-x-clip">
+    <div className="materials-theme ui-page text-sm md:text-base text-[var(--app-text)] w-full min-w-0 max-w-full overflow-x-clip">
       {/* Header */}
       <div className="bg-[var(--app-surface)] border-b border-[var(--app-border)] sticky top-0 z-10">
         <div className="p-4">

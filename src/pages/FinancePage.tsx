@@ -1,16 +1,17 @@
 import { NavLink, useNavigate, useLocation, Link, Outlet } from 'react-router-dom';
 import { useSwipeable } from 'react-swipeable';
-import { ArrowLeft, FileSpreadsheet, FileText, Store } from 'lucide-react';
+import { ArrowLeft, FileSpreadsheet, FileText, Landmark, Wallet, HandCoins, ChartNoAxesCombined, BookOpenText } from 'lucide-react';
 import { useAuthStore } from '../lib/store';
 import { FinanceShellProvider, useFinanceShell } from '../components/finance/FinanceShellContext';
 import { cn } from '../lib/utils';
+import { Button, Input } from '../components/ui';
 
 export const FINANCE_NAV = [
-  { to: 'cashflow', label: 'Cashflow' },
-  { to: 'hutang-piutang', label: 'Hutang & Piutang' },
-  { to: 'laba-rugi', label: 'Laba Rugi' },
-  { to: 'laba-ditahan', label: 'Laba Ditahan' },
-  { to: 'akun', label: 'Chart of Accounts' },
+  { to: 'cashflow', label: 'Cashflow', icon: Wallet },
+  { to: 'hutang-piutang', label: 'Hutang & Piutang', icon: HandCoins },
+  { to: 'laba-rugi', label: 'Laba Rugi', icon: ChartNoAxesCombined },
+  { to: 'laba-ditahan', label: 'Laba Ditahan', icon: Landmark },
+  { to: 'akun', label: 'Chart of Accounts', icon: BookOpenText },
 ] as const;
 
 function FinanceChrome() {
@@ -37,22 +38,22 @@ function FinanceChrome() {
     cn(
       'shrink-0 snap-start px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
       isActive
-        ? 'border-emerald-500 text-emerald-600'
-        : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
+        ? 'border-brand-500 text-brand-300'
+        : 'border-transparent text-[var(--ui-text-muted)] hover:text-[var(--ui-text)]'
     );
 
   const asideLink = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors',
       isActive
-        ? 'bg-emerald-50 dark:bg-emerald-900/25 text-emerald-600'
-        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700/80'
+        ? 'bg-[var(--ui-surface-3)] text-brand-300 border border-brand-600/40'
+        : 'text-[var(--ui-text-muted)] hover:bg-[var(--ui-surface-2)]'
     );
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 flex flex-col lg:flex-row">
+    <div className="ui-page flex flex-col lg:flex-row">
       <nav
-        className="lg:hidden sticky top-0 z-30 bg-white/95 dark:bg-gray-800/95 backdrop-blur border-b border-gray-200 dark:border-gray-700"
+        className="lg:hidden sticky top-0 z-30 bg-[var(--ui-surface)]/95 backdrop-blur border-b border-[var(--ui-border)]"
         aria-label="Sub halaman keuangan"
       >
         <div className="flex overflow-x-auto snap-x snap-mandatory">
@@ -65,22 +66,22 @@ function FinanceChrome() {
       </nav>
 
       <aside
-        className="hidden lg:flex w-60 shrink-0 flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+        className="hidden lg:flex w-60 shrink-0 flex-col border-r border-[var(--ui-border)] bg-[var(--ui-surface)]"
         aria-label="Navigasi keuangan desktop"
       >
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-b border-[var(--ui-border)]">
           <Link
             to="/dashboard"
-            className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 hover:text-emerald-700"
+            className="inline-flex items-center gap-2 text-sm font-medium text-brand-300 hover:text-brand-200"
           >
             <ArrowLeft className="w-4 h-4" /> Dashboard
           </Link>
-          <p className="mt-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Keuangan</p>
+          <p className="mt-3 text-xs font-semibold text-[var(--ui-text-dim)] uppercase tracking-wide">Keuangan</p>
         </div>
         <div className="flex-1 p-3 space-y-1 overflow-y-auto">
           {FINANCE_NAV.map((n) => (
             <NavLink key={n.to} to={n.to} className={asideLink}>
-              <Store className="w-4 h-4 opacity-60" />
+              <n.icon className="w-4 h-4 opacity-80" />
               {n.label}
             </NavLink>
           ))}
@@ -88,43 +89,35 @@ function FinanceChrome() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 min-h-screen">
-        <div className="sticky top-0 z-20 bg-white/90 dark:bg-gray-900/90 backdrop-blur border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
+        <div className="sticky top-0 z-20 bg-[var(--ui-surface)]/90 backdrop-blur border-b border-[var(--ui-border)] px-4 py-3 flex flex-wrap items-center gap-3 justify-between">
           <div className="flex items-center gap-3 lg:hidden">
             <Link
               to="/dashboard"
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="p-2 rounded-lg hover:bg-[var(--ui-surface-2)]"
               aria-label="Kembali ke dashboard"
             >
-              <ArrowLeft className="w-5 h-5 text-gray-700 dark:text-gray-200" />
+              <ArrowLeft className="w-5 h-5 text-[var(--ui-text)]" />
             </Link>
-            <span className="font-semibold text-gray-900 dark:text-white">FINANCE</span>
+            <span className="font-semibold text-[var(--ui-text)]">FINANCE</span>
           </div>
-          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+          <label className="flex items-center gap-2 text-sm text-[var(--ui-text-muted)]">
             Periode
-            <input
+            <Input
               type="month"
               value={month}
               onChange={(e) => setMonth(e.target.value)}
-              className="rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+              className="w-auto"
             />
           </label>
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => exportExcel()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-sm hover:bg-emerald-700"
-            >
+            <Button onClick={() => exportExcel()} variant="primary">
               <FileSpreadsheet className="w-4 h-4" />
               Excel
-            </button>
-            <button
-              type="button"
-              onClick={() => exportPdf()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold shadow-sm hover:bg-gray-800 dark:bg-gray-700"
-            >
+            </Button>
+            <Button onClick={() => exportPdf()} variant="secondary">
               <FileText className="w-4 h-4" />
               PDF
-            </button>
+            </Button>
           </div>
         </div>
 

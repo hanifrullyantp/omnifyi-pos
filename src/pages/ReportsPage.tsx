@@ -339,7 +339,7 @@ export default function ReportsPage() {
   }, [filteredTx]);
 
   return (
-    <div className="min-h-screen bg-gray-50/80 dark:bg-gray-900 text-gray-900 dark:text-gray-100 pb-24">
+    <div className="ui-page">
       <header className="sticky top-0 z-20 bg-white/90 dark:bg-gray-800/90 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex flex-wrap items-center gap-3">
         <Link to="/dashboard" className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 shrink-0">
           <ArrowLeft className="w-5 h-5" />
@@ -368,7 +368,7 @@ export default function ReportsPage() {
         </div>
       </header>
 
-      <div className="p-4 md:p-6 max-w-5xl xl:max-w-7xl mx-auto space-y-5">
+      <div className="ui-container max-w-7xl space-y-5">
         {/* Filters */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-100 dark:border-gray-700 p-4 shadow-sm space-y-4">
           <div className="flex flex-wrap items-center gap-2">

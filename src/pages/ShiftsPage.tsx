@@ -229,7 +229,7 @@ export default function ShiftsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div className="ui-page">
       <header className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b px-4 py-3 flex items-center gap-3">
         <Link to="/dashboard" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
           <ArrowLeft className="w-5 h-5" />
@@ -237,7 +237,7 @@ export default function ShiftsPage() {
         <h1 className="text-lg font-bold">Manajemen Shift</h1>
       </header>
 
-      <div className="p-4 lg:p-8 max-w-6xl mx-auto space-y-8">
+      <div className="ui-container max-w-6xl space-y-8">
         <section className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
             <h2 className="font-bold flex items-center gap-2">

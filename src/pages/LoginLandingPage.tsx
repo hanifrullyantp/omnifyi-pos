@@ -14,6 +14,7 @@ import { LandingIntegrationProvider, type SalesLeadFormPayload } from '../salesP
 import { LandingLoginViewProvider } from '../salesPageBaru/context/LandingLoginViewContext';
 import { SalesBaruPageContent } from '../salesPageBaru/SalesBaruPageContent';
 import { SalesLoginCard } from '../components/salesLanding/SalesLoginCard';
+import { getAppPath } from '../lib/routingTargets';
 
 export default function LoginLandingPage() {
   const navigate = useNavigate();
@@ -94,7 +95,12 @@ export default function LoginLandingPage() {
   const getPostLoginPath = (user: User) => (user.role === 'ADMIN_SYSTEM' ? '/kelola-sales-landing' : '/dashboard');
   const goAfterLogin = (user: User) => {
     const target = getPostLoginPath(user);
-    pushDebug(`Redirect ke ${target} (role=${user.role})`);
+    const fullUrl = getAppPath(target);
+    pushDebug(`Redirect ke ${fullUrl} (role=${user.role})`);
+    if (typeof window !== 'undefined' && window.location.origin !== new URL(fullUrl).origin) {
+      window.location.assign(fullUrl);
+      return;
+    }
     navigate(target, { replace: true });
   };
   const handleLoginSuccess = (user: User) => {
@@ -383,7 +389,14 @@ export default function LoginLandingPage() {
       autoEnterApp={autoEnterApp}
       onAutoEnterAppChange={setAutoEnterApp}
       welcomeUserName={welcomeUserName}
-      onEnterAppNow={() => navigate(welcomeTargetPath, { replace: true })}
+      onEnterAppNow={() => {
+        const fullUrl = getAppPath(welcomeTargetPath);
+        if (typeof window !== 'undefined' && window.location.origin !== new URL(fullUrl).origin) {
+          window.location.assign(fullUrl);
+          return;
+        }
+        navigate(welcomeTargetPath, { replace: true });
+      }}
       debugLogs={debugLogs}
       onClearDebugLogs={() => setDebugLogs([])}
       scrollToCobaGratis={() =>
