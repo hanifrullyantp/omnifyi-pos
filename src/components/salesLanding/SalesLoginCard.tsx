@@ -22,6 +22,8 @@ type Props = {
   onAutoEnterAppChange: (next: boolean) => void;
   welcomeUserName: string;
   onEnterAppNow: () => void;
+  debugLogs: string[];
+  onClearDebugLogs: () => void;
   /** Scroll ke tombol Coba Gratis di hero */
   scrollToCobaGratis: () => void;
   className?: string;
@@ -45,6 +47,8 @@ export function SalesLoginCard({
   onAutoEnterAppChange,
   welcomeUserName,
   onEnterAppNow,
+  debugLogs,
+  onClearDebugLogs,
   scrollToCobaGratis,
   className,
 }: Props) {
@@ -179,6 +183,25 @@ export function SalesLoginCard({
           </motion.div>
         )}
       </AnimatePresence>
+      <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] font-semibold tracking-wide text-slate-300 uppercase">Login Debug Log</p>
+          <button type="button" onClick={onClearDebugLogs} className="text-[11px] text-slate-400 hover:text-white">
+            Bersihkan
+          </button>
+        </div>
+        <div className="mt-2 max-h-40 overflow-auto space-y-1 pr-1">
+          {debugLogs.length === 0 ? (
+            <p className="text-xs text-slate-500">Belum ada log.</p>
+          ) : (
+            debugLogs.slice().reverse().map((line, idx) => (
+              <p key={`${idx}-${line}`} className="text-[11px] text-slate-300 break-words">
+                {line}
+              </p>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

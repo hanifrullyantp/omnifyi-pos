@@ -57,6 +57,22 @@ export default function LoginLandingPage() {
   const [autoEnterApp, setAutoEnterApp] = useState(true);
   const [welcomeUserName, setWelcomeUserName] = useState('');
   const [welcomeTargetPath, setWelcomeTargetPath] = useState('/dashboard');
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  const pushDebug = useCallback((msg: string) => {
+    const line = `[${new Date().toLocaleTimeString('id-ID', { hour12: false })}] ${msg}`;
+    setDebugLogs((prev) => {
+      const next = [...prev.slice(-19), line];
+      try {
+        localStorage.setItem('omnifyi_login_debug_logs_v1', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+    // eslint-disable-next-line no-console
+    console.log('[LOGIN DEBUG]', line);
+  }, []);
 
   const bumpStatus = (msg: string, tone: 'error' | 'info' | 'neutral' = 'error') => {
     setStatus(msg);
@@ -67,8 +83,13 @@ export default function LoginLandingPage() {
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
 
   const getPostLoginPath = (user: User) => (user.role === 'ADMIN_SYSTEM' ? '/admin' : '/dashboard');
-  const goAfterLogin = (user: User) => navigate(getPostLoginPath(user), { replace: true });
+  const goAfterLogin = (user: User) => {
+    const target = getPostLoginPath(user);
+    pushDebug(`Redirect ke ${target} (role=${user.role})`);
+    navigate(target, { replace: true });
+  };
   const handleLoginSuccess = (user: User) => {
+    pushDebug(`Login sukses untuk ${user.email} (${user.role})`);
     setWelcomeUserName(user.name || user.email || 'Pengguna');
     setWelcomeTargetPath(getPostLoginPath(user));
     if (autoEnterApp) goAfterLogin(user);
@@ -78,50 +99,65 @@ export default function LoginLandingPage() {
     setLoginBusy(true);
     setStatus('');
     setStatusTone('neutral');
+    pushDebug('Mulai proses login');
     try {
       await seedInitialData();
+      pushDebug('seedInitialData selesai');
       const emailNorm = email.trim().toLowerCase();
       const passInput = password.trim();
+      pushDebug(`Input login email=${emailNorm}`);
 
       if (emailNorm === DEMO_OWNER_EMAIL) {
+        pushDebug('Mode demo lokal terdeteksi');
         await seedDemoWorkspace();
+        pushDebug('seedDemoWorkspace selesai');
         const user = await db.users.where('email').equals(emailNorm).first();
         if (!user) {
+          pushDebug('Gagal: akun demo tidak ditemukan di DB lokal');
           bumpStatus('Akun demo tidak ditemukan');
           return;
         }
         if (passInput !== user.passwordHash) {
+          pushDebug('Gagal: password demo tidak cocok');
           bumpStatus('Password salah');
           return;
         }
         const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
         const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
         if (!tenant || businesses.length === 0) {
+          pushDebug('Gagal: tenant/bisnis demo kosong');
           bumpStatus('Usaha demo tidak ditemukan');
           return;
         }
         setLandingReturningUser();
         setAuth(user, tenant, businesses[0], businesses);
+        pushDebug('setAuth demo sukses');
         handleLoginSuccess(user);
       } else {
         const sb = getSupabase();
         if (!sb) {
+          pushDebug('Gagal: Supabase client tidak tersedia');
           bumpStatus(SUPABASE_ENV_SETUP_HINT, 'info');
           return;
         }
+        pushDebug('Memanggil supabase.auth.signInWithPassword');
         const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
         if (error) {
           // eslint-disable-next-line no-console
           console.error('[Omnifyi login] signInWithPassword', error.code, error.message);
+          pushDebug(`Gagal Supabase signIn: ${error.code ?? 'unknown'} - ${error.message}`);
           bumpStatus(formatSupabaseSignInError(error));
           return;
         }
         if (!data.user) {
+          pushDebug('Gagal: Supabase signIn tanpa data.user');
           bumpStatus('Email atau password salah');
           return;
         }
+        pushDebug(`Supabase login sukses userId=${data.user.id}`);
         try {
           const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+          pushDebug(`provisionTenant sukses tenant=${tenantId} business=${businessId}`);
           const { user, tenant, business } = await ensureLocalCoreRows({
             userId: data.user.id,
             email: emailNorm,
@@ -129,12 +165,15 @@ export default function LoginLandingPage() {
             businessId,
             businessName: 'Usaha Baru',
           });
+          pushDebug(`ensureLocalCoreRows sukses localUser=${user.id ?? '-'} business=${business.id ?? '-'}`);
           setLandingReturningUser();
           setAuth(user, tenant, business, [business]);
+          pushDebug('setAuth cloud sukses');
           handleLoginSuccess(user);
         } catch (provErr) {
           // eslint-disable-next-line no-console
           console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
+          pushDebug(`Gagal provisioning/local rows: ${provErr instanceof Error ? provErr.message : String(provErr)}`);
           await sb.auth.signOut();
           bumpStatus(formatProvisionError(provErr));
         }
@@ -142,6 +181,7 @@ export default function LoginLandingPage() {
       setStatus('');
       setStatusTone('neutral');
     } finally {
+      pushDebug('Proses login selesai');
       setLoginBusy(false);
     }
   };
@@ -318,6 +358,8 @@ export default function LoginLandingPage() {
       onAutoEnterAppChange={setAutoEnterApp}
       welcomeUserName={welcomeUserName}
       onEnterAppNow={() => navigate(welcomeTargetPath, { replace: true })}
+      debugLogs={debugLogs}
+      onClearDebugLogs={() => setDebugLogs([])}
       scrollToCobaGratis={() =>
         document.querySelector<HTMLElement>('[data-hero-cta-free]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }

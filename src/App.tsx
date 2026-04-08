@@ -3403,6 +3403,10 @@ const App = () => {
 
   // Not logged in
   if (!currentUser) {
+    if (location.pathname.startsWith('/dashboard')) {
+      // eslint-disable-next-line no-console
+      console.warn('[LOGIN DEBUG] Guard: akses dashboard tanpa currentUser -> tampilkan landing login');
+    }
     if (location.pathname === '/admin') {
       return (
         <AppErrorBoundary>
