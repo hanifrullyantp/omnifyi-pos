@@ -1,5 +1,5 @@
 import { db, type Product, type Transaction, type TransactionItem } from './db';
-import { supabase } from './supabaseClient';
+import { getSupabase } from './supabaseClient';
 
 export type SyncQueueItem = {
   id: string;
@@ -69,7 +69,8 @@ export async function syncPendingBatch(items: SyncQueueItem[]) {
   };
 
   try {
-    const { data: sessionData } = supabase ? await supabase.auth.getSession() : { data: { session: null } };
+    const sb = getSupabase();
+    const { data: sessionData } = sb ? await sb.auth.getSession() : { data: { session: null } };
     const token = sessionData.session?.access_token;
     const url = endpointUrl();
     const res = await fetch(url, {

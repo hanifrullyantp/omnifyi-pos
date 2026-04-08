@@ -2,13 +2,15 @@ import React from 'react';
 import { useCms } from '../context/CmsContext';
 import { Settings, LogIn, LayoutDashboard } from 'lucide-react';
 import { cn } from './EditableElements';
+import { useLandingLoginView } from '../context/LandingLoginViewContext';
 
 export const Header = () => {
   const { data, toggleAdmin } = useCms();
   const { isAdmin } = data;
+  const { revealLogin } = useLandingLoginView();
 
-  const scrollToAuth = () => {
-    document.getElementById('auth-login')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const onMasukClick = () => {
+    revealLogin();
   };
 
   return (
@@ -58,7 +60,7 @@ export const Header = () => {
 
             <button
               type="button"
-              onClick={scrollToAuth}
+              onClick={onMasukClick}
               className="px-6 py-2.5 rounded-full font-medium transition-all duration-300 flex items-center gap-2 bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20"
             >
               <LogIn size={18} />

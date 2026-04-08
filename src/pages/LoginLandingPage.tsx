@@ -3,15 +3,32 @@ import { X } from 'lucide-react';
 import { db, seedInitialData, seedDemoWorkspace, DEMO_OWNER_EMAIL, resetDemoData } from '../lib/db';
 import { useAuthStore } from '../lib/store';
 import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../lib/billingFlow';
-import { supabase } from '../lib/supabaseClient';
+import { getSupabase, SUPABASE_ENV_SETUP_HINT } from '../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../lib/cloudProvision';
+import { getLandingReturningUser, setLandingReturningUser } from '../lib/landingReturningUser';
 import { CmsProvider } from '../salesPageBaru/context/CmsContext';
 import { LandingIntegrationProvider, type SalesLeadFormPayload } from '../salesPageBaru/context/LandingIntegrationContext';
+import { LandingLoginViewProvider } from '../salesPageBaru/context/LandingLoginViewContext';
 import { SalesBaruPageContent } from '../salesPageBaru/SalesBaruPageContent';
 import { SalesLoginCard } from '../components/salesLanding/SalesLoginCard';
 
 export default function LoginLandingPage() {
   const { setAuth } = useAuthStore();
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const [returningUser, setReturningUser] = useState(() => getLandingReturningUser());
+  const [formPulseKey, setFormPulseKey] = useState(0);
+
+  const showAuthPanel = !currentUser && returningUser;
+
+  const revealLogin = useCallback(() => {
+    setLandingReturningUser();
+    setReturningUser(true);
+    setFormPulseKey((k) => k + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.setTimeout(() => {
+      document.getElementById('auth-login')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 420);
+  }, []);
   const [demoOpen, setDemoOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [email, setEmail] = useState('owner@example.com');
@@ -47,10 +64,12 @@ export default function LoginLandingPage() {
       const tenant = await db.tenants.where('ownerId').equals(user.id!).first();
       const businesses = tenant?.id ? await db.businesses.where('tenantId').equals(tenant.id).toArray() : [];
       if (!tenant || businesses.length === 0) return setStatus('Usaha demo tidak ditemukan');
+      setLandingReturningUser();
       setAuth(user, tenant, businesses[0], businesses);
     } else {
-      if (!supabase) return setStatus('Supabase env belum diset. Isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di .env.local lalu restart dev server.');
-      const { data, error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: passInput });
+      const sb = getSupabase();
+      if (!sb) return setStatus(SUPABASE_ENV_SETUP_HINT);
+      const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
       if (error || !data.user) return setStatus('Email atau password salah');
       const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
       const { user, tenant, business } = await ensureLocalCoreRows({
@@ -60,6 +79,7 @@ export default function LoginLandingPage() {
         businessId,
         businessName: 'Usaha Baru',
       });
+      setLandingReturningUser();
       setAuth(user, tenant, business, [business]);
     }
     setStatus('');
@@ -74,6 +94,7 @@ export default function LoginLandingPage() {
     if (!tenant) return setStatus('Tenant demo tidak ditemukan');
     const businesses = await db.businesses.where('tenantId').equals(tenant.id!).toArray();
     if (businesses.length === 0) return setStatus('Bisnis demo tidak ditemukan');
+    setLandingReturningUser();
     setAuth(user, tenant, businesses[0], businesses);
   };
 
@@ -227,9 +248,13 @@ export default function LoginLandingPage() {
   return (
     <CmsProvider>
       <LandingIntegrationProvider persistLead={persistLead} openCheckoutModal={() => setCheckoutOpen(true)}>
-        <div className="bg-slate-950 min-h-screen text-slate-50 font-sans selection:bg-emerald-500/30 selection:text-emerald-200 scroll-smooth">
-          <SalesBaruPageContent authPanel={authPanel} />
-        </div>
+        <LandingLoginViewProvider
+          value={{ showAuthPanel, revealLogin, formPulseKey }}
+        >
+          <div className="bg-slate-950 min-h-screen text-slate-50 font-sans selection:bg-emerald-500/30 selection:text-emerald-200 scroll-smooth">
+            <SalesBaruPageContent authPanel={authPanel} />
+          </div>
+        </LandingLoginViewProvider>
 
         {superAdminChoiceOpen && (
           <div className="fixed inset-0 z-[73] bg-black/70 p-4 flex items-center justify-center">

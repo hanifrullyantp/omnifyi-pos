@@ -2,14 +2,24 @@ import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // https://vite.dev/config/
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => {
+  // Vercel menyuntikkan env ke process.env saat `vite build`; file .env* tetap dipakai di lokal.
+  const fileEnv = loadEnv(mode, process.cwd(), "VITE_");
+  const supabaseUrl = (process.env.VITE_SUPABASE_URL ?? fileEnv.VITE_SUPABASE_URL ?? "").trim();
+  const supabaseAnon = (process.env.VITE_SUPABASE_ANON_KEY ?? fileEnv.VITE_SUPABASE_ANON_KEY ?? "").trim();
+
+  return {
+  define: {
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
+    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabaseAnon),
+  },
   // vite-plugin-singlefile is meant for production builds; in dev it can confuse import analysis.
   // Disable fast refresh to avoid html-proxy mismatch under `vercel dev`.
   plugins: [react({ fastRefresh: false }), tailwindcss(), command === "build" ? viteSingleFile() : undefined].filter(Boolean),
@@ -32,4 +42,5 @@ export default defineConfig(({ command }) => ({
     host: "localhost",
     open: true,
   },
-}));
+};
+});

@@ -5,7 +5,7 @@ import { useAuthStore } from '../../lib/store';
 import { checkMidtransPaid, runLocalBillingFlow, startMidtransCheckout } from '../../lib/billingFlow';
 import MarketingLayout from './layout';
 import { defaultLandingContent, loadLandingContent, type LandingContent } from '../../lib/landingContent';
-import { supabase } from '../../lib/supabaseClient';
+import { getSupabase, SUPABASE_ENV_SETUP_HINT } from '../../lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from '../../lib/cloudProvision';
 
 export default function MarketingPage() {
@@ -94,8 +94,9 @@ export default function MarketingPage() {
       if (!tenant || businesses.length === 0) return setStatus('Usaha demo tidak ditemukan');
       setAuth(user, tenant, businesses[0], businesses);
     } else {
-      if (!supabase) return setStatus('Supabase env belum diset. Isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di .env.local lalu restart dev server.');
-      const { data, error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: passInput });
+      const sb = getSupabase();
+      if (!sb) return setStatus(SUPABASE_ENV_SETUP_HINT);
+      const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: passInput });
       if (error || !data.user) return setStatus('Email atau password salah');
       const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
       const { user, tenant, business } = await ensureLocalCoreRows({

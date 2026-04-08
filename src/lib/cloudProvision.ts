@@ -1,8 +1,9 @@
 import type { User, Tenant, Business } from './db';
 import { db } from './db';
-import { supabase } from './supabaseClient';
+import { getSupabase } from './supabaseClient';
 
 export async function provisionTenantAndBusiness(opts?: { businessName?: string }) {
+  const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase env missing (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)');
   const { data, error } = await supabase.rpc('provision_tenant', {
     business_name: opts?.businessName ?? 'Usaha Baru',

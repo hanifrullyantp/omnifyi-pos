@@ -5,6 +5,7 @@ import { useCms } from '../context/CmsContext';
 import { ChevronDown, ArrowRight, Bell, X, PlayCircle } from 'lucide-react';
 import { LeadFormPopup } from './LeadFormPopup';
 import { useLandingIntegration } from '../context/LandingIntegrationContext';
+import { useLandingLoginViewOptional } from '../context/LandingLoginViewContext';
 
 export const SoftCta = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -231,7 +232,8 @@ export const FinalCTA = () => {
 
 export const Footer = () => {
   const { data } = useCms();
-  
+  const landingLogin = useLandingLoginViewOptional();
+
   return (
     <footer className="bg-slate-950 border-t border-slate-800 py-16 relative z-10">
       <div className="container mx-auto px-4 lg:px-8">
@@ -254,7 +256,16 @@ export const Footer = () => {
             <h4 className="text-white font-bold mb-6">Tautan Penting</h4>
             <ul className="space-y-4 text-slate-400 font-light">
               <li>
-                <a href="#auth-login" className="hover:text-emerald-400 transition">
+                <a
+                  href="#auth-login"
+                  className="hover:text-emerald-400 transition"
+                  onClick={(e) => {
+                    if (landingLogin) {
+                      e.preventDefault();
+                      landingLogin.revealLogin();
+                    }
+                  }}
+                >
                   Login Aplikasi
                 </a>
               </li>

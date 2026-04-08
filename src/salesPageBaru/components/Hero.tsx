@@ -3,14 +3,18 @@ import { motion } from 'framer-motion';
 import { EditableText, EditableImage, EditableList } from './EditableElements';
 import { ArrowRight, PlayCircle, Activity, Banknote, ShieldCheck, Zap, WifiOff } from 'lucide-react';
 import { LeadFormPopup } from './LeadFormPopup';
+import { useLandingLoginView } from '../context/LandingLoginViewContext';
 
 type HeroProps = {
-  /** Kartu login POS (Supabase + demo) — dipasang di kolom kanan bawah mockup */
+  /** Kartu login POS (Supabase + demo) — hanya ditampilkan jika `showAuthPanel` di context */
   authPanel?: React.ReactNode;
 };
 
 export const Hero = ({ authPanel }: HeroProps) => {
+  const { showAuthPanel, formPulseKey } = useLandingLoginView();
   const [isLeadFormOpen, setIsLeadFormOpen] = useState(false);
+  /** Selama panel login aktif, mockup kanan disembunyikan (gambar & form tidak bersamaan). */
+  const showHeroMockup = !showAuthPanel;
 
   return (
     <section className="relative pt-32 pb-20 lg:pt-48 lg:pb-32 overflow-hidden bg-slate-950 min-h-screen flex items-center">
@@ -79,6 +83,7 @@ export const Hero = ({ authPanel }: HeroProps) => {
           </motion.div>
           
           <div className="flex flex-col gap-8">
+          {showHeroMockup ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -152,11 +157,39 @@ export const Hero = ({ authPanel }: HeroProps) => {
             </motion.div>
             
           </motion.div>
+          ) : null}
 
-          {authPanel ? (
-            <div id="auth-login" className="scroll-mt-32 relative z-30 w-full">
+          {showAuthPanel && authPanel ? (
+            <motion.div
+              id="auth-login"
+              key={formPulseKey}
+              className="scroll-mt-32 relative z-30 w-full rounded-2xl"
+              initial={formPulseKey > 0 ? { scale: 0.92, opacity: 0.82 } : false}
+              animate={
+                formPulseKey > 0
+                  ? {
+                      scale: 1,
+                      opacity: 1,
+                      boxShadow: [
+                        '0 0 0 0 rgba(16, 185, 129, 0)',
+                        '0 0 0 12px rgba(16, 185, 129, 0.18)',
+                        '0 0 0 0 rgba(16, 185, 129, 0)',
+                      ],
+                    }
+                  : { scale: 1, opacity: 1 }
+              }
+              transition={
+                formPulseKey > 0
+                  ? {
+                      scale: { type: 'spring', stiffness: 480, damping: 19, mass: 0.82 },
+                      opacity: { duration: 0.22 },
+                      boxShadow: { duration: 0.7, times: [0, 0.4, 1] },
+                    }
+                  : { duration: 0 }
+              }
+            >
               {authPanel}
-            </div>
+            </motion.div>
           ) : null}
           </div>
           

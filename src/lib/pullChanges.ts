@@ -1,4 +1,4 @@
-import { supabase } from './supabaseClient';
+import { getSupabase } from './supabaseClient';
 import { db } from './db';
 import { setSyncHooksEnabled } from './syncHooks';
 
@@ -37,6 +37,7 @@ function keyForTenant(tenantId: string) {
 }
 
 export async function pullAllChangesForTenant(tenantId: string) {
+  const supabase = getSupabase();
   if (!supabase) return;
   const sinceIso = localStorage.getItem(keyForTenant(tenantId)) || new Date(0).toISOString();
   const nowIso = new Date().toISOString();

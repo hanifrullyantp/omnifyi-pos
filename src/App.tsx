@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-r
 import { useAuthStore, useSyncStore } from './lib/store';
 import { db, seedInitialData, seedDemoWorkspace, Cashier, resetDemoData } from './lib/db';
 import { logActivity, formatActivityAction } from './lib/activityLog';
-import { supabase } from './lib/supabaseClient';
+import { getSupabase, SUPABASE_ENV_SETUP_HINT } from './lib/supabaseClient';
 import { ensureLocalCoreRows, provisionTenantAndBusiness } from './lib/cloudProvision';
 import { installSyncHooks } from './lib/syncHooks';
 import { pullAllChangesForTenant } from './lib/pullChanges';
@@ -238,11 +238,12 @@ const OwnerLoginScreen = () => {
   const loginCredentials = async (e: string, p: string) => {
     const emailNorm = e.trim().toLowerCase();
     const pass = p.trim();
-    if (!supabase) {
-      setError('Supabase env belum diset. Isi VITE_SUPABASE_URL & VITE_SUPABASE_ANON_KEY di .env.local lalu restart dev server.');
+    const sb = getSupabase();
+    if (!sb) {
+      setError(SUPABASE_ENV_SETUP_HINT);
       return false;
     }
-    const { data, error } = await supabase.auth.signInWithPassword({ email: emailNorm, password: pass });
+    const { data, error } = await sb.auth.signInWithPassword({ email: emailNorm, password: pass });
     if (error || !data.user) {
       setError('Email atau password salah');
       return false;
@@ -3217,8 +3218,9 @@ const App = () => {
       installSyncHooks();
       // Restore Supabase session -> ensure tenant/business exists -> ensure local core rows exist.
       try {
-        if (!supabase) throw new Error('supabase_disabled');
-        const { data } = await supabase.auth.getSession();
+        const sb = getSupabase();
+        if (!sb) throw new Error('supabase_disabled');
+        const { data } = await sb.auth.getSession();
         const u = data.session?.user;
         if (u?.id && u.email) {
           const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
