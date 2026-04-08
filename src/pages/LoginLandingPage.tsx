@@ -82,7 +82,16 @@ export default function LoginLandingPage() {
 
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
 
-  const getPostLoginPath = (user: User) => (user.role === 'ADMIN_SYSTEM' ? '/admin' : '/dashboard');
+  const formatErr = (err: unknown) => {
+    if (err instanceof Error) return `${err.name}: ${err.message}`;
+    try {
+      return JSON.stringify(err);
+    } catch {
+      return String(err);
+    }
+  };
+
+  const getPostLoginPath = (user: User) => (user.role === 'ADMIN_SYSTEM' ? '/kelola-sales-landing' : '/dashboard');
   const goAfterLogin = (user: User) => {
     const target = getPostLoginPath(user);
     pushDebug(`Redirect ke ${target} (role=${user.role})`);
@@ -90,6 +99,13 @@ export default function LoginLandingPage() {
   };
   const handleLoginSuccess = (user: User) => {
     pushDebug(`Login sukses untuk ${user.email} (${user.role})`);
+    if (user.role === 'ADMIN_SYSTEM') {
+      try {
+        localStorage.setItem('omnifyi_force_inline_admin_mode_v1', '1');
+      } catch {
+        // ignore
+      }
+    }
     setWelcomeUserName(user.name || user.email || 'Pengguna');
     setWelcomeTargetPath(getPostLoginPath(user));
     if (autoEnterApp) goAfterLogin(user);
@@ -156,8 +172,19 @@ export default function LoginLandingPage() {
         }
         pushDebug(`Supabase login sukses userId=${data.user.id}`);
         try {
-          const { tenantId, businessId } = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
-          pushDebug(`provisionTenant sukses tenant=${tenantId} business=${businessId}`);
+          let tenantId = '';
+          let businessId = '';
+          try {
+            const provision = await provisionTenantAndBusiness({ businessName: 'Usaha Baru' });
+            tenantId = provision.tenantId;
+            businessId = provision.businessId;
+            pushDebug(`provisionTenant sukses tenant=${tenantId} business=${businessId}`);
+          } catch (provisionErr) {
+            pushDebug(`provisionTenant gagal: ${formatErr(provisionErr)}`);
+            tenantId = crypto.randomUUID();
+            businessId = crypto.randomUUID();
+            pushDebug(`Fallback local bootstrap tenant=${tenantId} business=${businessId}`);
+          }
           const { user, tenant, business } = await ensureLocalCoreRows({
             userId: data.user.id,
             email: emailNorm,
@@ -173,8 +200,7 @@ export default function LoginLandingPage() {
         } catch (provErr) {
           // eslint-disable-next-line no-console
           console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
-          pushDebug(`Gagal provisioning/local rows: ${provErr instanceof Error ? provErr.message : String(provErr)}`);
-          await sb.auth.signOut();
+          pushDebug(`Gagal provisioning/local rows: ${formatErr(provErr)}`);
           bumpStatus(formatProvisionError(provErr));
         }
       }

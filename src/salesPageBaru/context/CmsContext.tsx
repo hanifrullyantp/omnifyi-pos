@@ -352,18 +352,27 @@ const CmsContext = createContext<CmsContextType | undefined>(undefined);
 
 export const CmsProvider = ({ children }: { children: ReactNode }) => {
   const [data, setData] = useState<CmsState>(() => {
+    const forceInlineAdminMode = localStorage.getItem('omnifyi_force_inline_admin_mode_v1') === '1';
     const saved = localStorage.getItem('omnifyi_sales_landing_cms_v1');
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Partial<CmsState>;
         const hero = { ...initialState.hero, ...(parsed.hero ?? {}) };
-        return { ...initialState, ...parsed, hero, isAdmin: false, isLoggedIn: false };
+        return { ...initialState, ...parsed, hero, isAdmin: forceInlineAdminMode, isLoggedIn: false };
       } catch (e) {
-        return initialState;
+        return { ...initialState, isAdmin: forceInlineAdminMode };
       }
     }
-    return initialState;
+    return { ...initialState, isAdmin: forceInlineAdminMode };
   });
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('omnifyi_force_inline_admin_mode_v1');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('omnifyi_sales_landing_cms_v1', JSON.stringify(data));
