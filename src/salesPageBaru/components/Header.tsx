@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useCms } from '../context/CmsContext';
 import { Settings, LogIn, LayoutDashboard } from 'lucide-react';
 import { cn } from './EditableElements';
@@ -11,7 +11,15 @@ export const Header = () => {
   const { isAdmin } = data;
   const { revealLogin } = useLandingLoginView();
   const authUser = useAuthStore((s) => s.currentUser);
+  const navigate = useNavigate();
   const showCmsToggle = import.meta.env.DEV || authUser?.role === 'ADMIN_SYSTEM';
+  const onBukaAppClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (authUser) return;
+    e.preventDefault();
+    revealLogin();
+    navigate('/', { replace: false });
+  };
+
 
   const onMasukClick = () => {
     revealLogin();
@@ -61,6 +69,7 @@ export const Header = () => {
 
             <a
               href="/dashboard"
+              onClick={onBukaAppClick}
               className={cn(
                 'hidden sm:inline-flex px-5 py-2.5 rounded-full font-medium transition-all duration-300 items-center gap-2',
                 'bg-slate-800 text-white hover:bg-slate-700 border border-white/10',

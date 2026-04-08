@@ -59,6 +59,11 @@ export function SalesLoginCard({
     e.preventDefault();
     if (!loginBusy) onLogin();
   };
+  const submitOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    if (!loginBusy) onLogin();
+  };
 
   return (
     <div
@@ -113,6 +118,7 @@ export function SalesLoginCard({
         <input
           value={email}
           onChange={(e) => onEmailChange(e.target.value)}
+          onKeyDown={submitOnEnter}
           placeholder="Email"
           autoComplete="email"
           className="w-full px-3 py-2.5 rounded-xl bg-black/40 border border-teal-500/15 text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/40"
@@ -121,6 +127,7 @@ export function SalesLoginCard({
         <input
           value={password}
           onChange={(e) => onPasswordChange(e.target.value)}
+          onKeyDown={submitOnEnter}
           placeholder="Password"
           type="password"
           autoComplete="current-password"
