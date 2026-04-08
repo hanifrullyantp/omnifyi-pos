@@ -54,6 +54,9 @@ export default function LoginLandingPage() {
   const [statusTone, setStatusTone] = useState<'neutral' | 'error' | 'info'>('neutral');
   const [loginBusy, setLoginBusy] = useState(false);
   const [resetBusy, setResetBusy] = useState(false);
+  const [autoEnterApp, setAutoEnterApp] = useState(true);
+  const [welcomeUserName, setWelcomeUserName] = useState('');
+  const [welcomeTargetPath, setWelcomeTargetPath] = useState('/dashboard');
 
   const bumpStatus = (msg: string, tone: 'error' | 'info' | 'neutral' = 'error') => {
     setStatus(msg);
@@ -63,12 +66,12 @@ export default function LoginLandingPage() {
 
   const midtransEnabled = (import.meta.env.VITE_MIDTRANS_ENABLED as string | undefined) === 'true';
 
-  const goAfterLogin = (user: User) => {
-    if (user.role === 'ADMIN_SYSTEM') {
-      navigate('/admin', { replace: true });
-      return;
-    }
-    navigate('/dashboard', { replace: true });
+  const getPostLoginPath = (user: User) => (user.role === 'ADMIN_SYSTEM' ? '/admin' : '/dashboard');
+  const goAfterLogin = (user: User) => navigate(getPostLoginPath(user), { replace: true });
+  const handleLoginSuccess = (user: User) => {
+    setWelcomeUserName(user.name || user.email || 'Pengguna');
+    setWelcomeTargetPath(getPostLoginPath(user));
+    if (autoEnterApp) goAfterLogin(user);
   };
 
   const loginOwner = async () => {
@@ -99,7 +102,7 @@ export default function LoginLandingPage() {
         }
         setLandingReturningUser();
         setAuth(user, tenant, businesses[0], businesses);
-        goAfterLogin(user);
+        handleLoginSuccess(user);
       } else {
         const sb = getSupabase();
         if (!sb) {
@@ -128,7 +131,7 @@ export default function LoginLandingPage() {
           });
           setLandingReturningUser();
           setAuth(user, tenant, business, [business]);
-          goAfterLogin(user);
+          handleLoginSuccess(user);
         } catch (provErr) {
           // eslint-disable-next-line no-console
           console.error('[Omnifyi login] provisionTenant / ensureLocalCoreRows', provErr);
@@ -154,7 +157,7 @@ export default function LoginLandingPage() {
     if (businesses.length === 0) return setStatus('Bisnis demo tidak ditemukan');
     setLandingReturningUser();
     setAuth(user, tenant, businesses[0], businesses);
-    goAfterLogin(user);
+    handleLoginSuccess(user);
   };
 
   const validPhone = (v: string) => /^(\+?62|0)8[0-9]{7,13}$/.test(v.replace(/\s+/g, ''));
@@ -299,12 +302,22 @@ export default function LoginLandingPage() {
       statusTone={statusTone}
       loginBusy={loginBusy}
       resetBusy={resetBusy}
-      onEmailChange={setEmail}
-      onPasswordChange={setPassword}
+      onEmailChange={(v) => {
+        setWelcomeUserName('');
+        setEmail(v);
+      }}
+      onPasswordChange={(v) => {
+        setWelcomeUserName('');
+        setPassword(v);
+      }}
       onLogin={() => void loginOwner()}
       onResetDemo={() => void handleResetDemo()}
       onOpenCheckout={() => setCheckoutOpen(true)}
       onOpenCobaGratis={() => setLeadFormOpen(true)}
+      autoEnterApp={autoEnterApp}
+      onAutoEnterAppChange={setAutoEnterApp}
+      welcomeUserName={welcomeUserName}
+      onEnterAppNow={() => navigate(welcomeTargetPath, { replace: true })}
       scrollToCobaGratis={() =>
         document.querySelector<HTMLElement>('[data-hero-cta-free]')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       }

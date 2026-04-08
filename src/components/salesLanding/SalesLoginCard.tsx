@@ -18,6 +18,10 @@ type Props = {
   onOpenCheckout: () => void;
   /** Lead form / Coba Gratis */
   onOpenCobaGratis: () => void;
+  autoEnterApp: boolean;
+  onAutoEnterAppChange: (next: boolean) => void;
+  welcomeUserName: string;
+  onEnterAppNow: () => void;
   /** Scroll ke tombol Coba Gratis di hero */
   scrollToCobaGratis: () => void;
   className?: string;
@@ -37,6 +41,10 @@ export function SalesLoginCard({
   onResetDemo,
   onOpenCheckout,
   onOpenCobaGratis,
+  autoEnterApp,
+  onAutoEnterAppChange,
+  welcomeUserName,
+  onEnterAppNow,
   scrollToCobaGratis,
   className,
 }: Props) {
@@ -59,20 +67,36 @@ export function SalesLoginCard({
         className,
       )}
     >
-      <div className="rounded-xl border border-amber-400/30 bg-amber-500/[0.12] px-3 py-2.5">
-        <p className="font-semibold text-amber-200 text-sm">Mode Demo:</p>
-        <p className="mt-1.5 text-amber-100/85 text-xs leading-relaxed">
-          Klik tombol{' '}
-          <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={scrollToCobaGratis}>
-            Coba Gratis
-          </button>{' '}
-          di atas, atau{' '}
-          <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={onOpenCobaGratis}>
-            klik di sini
-          </button>{' '}
-          untuk mencoba gratis aplikasi.
-        </p>
-      </div>
+      {welcomeUserName ? (
+        <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/[0.12] px-3 py-2.5">
+          <p className="text-emerald-100 text-sm leading-relaxed">
+            Selamat Datang <span className="font-semibold">{welcomeUserName}</span>, silahkan{' '}
+            <button
+              type="button"
+              className="underline decoration-emerald-300/80 hover:text-white font-medium"
+              onClick={onEnterAppNow}
+            >
+              klik disini
+            </button>{' '}
+            untuk masuk ke aplikasi.
+          </p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-500/[0.12] px-3 py-2.5">
+          <p className="font-semibold text-amber-200 text-sm">Mode Demo:</p>
+          <p className="mt-1.5 text-amber-100/85 text-xs leading-relaxed">
+            Klik tombol{' '}
+            <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={scrollToCobaGratis}>
+              Coba Gratis
+            </button>{' '}
+            di atas, atau{' '}
+            <button type="button" className="text-amber-100 underline decoration-amber-400/60 hover:text-white" onClick={onOpenCobaGratis}>
+              klik di sini
+            </button>{' '}
+            untuk mencoba gratis aplikasi.
+          </p>
+        </div>
+      )}
       <button
         type="button"
         disabled={resetBusy}
@@ -109,6 +133,15 @@ export function SalesLoginCard({
         >
           {loginBusy ? 'Memverifikasi…' : 'Masuk'}
         </button>
+        <label className="mt-3 flex items-center gap-2 text-xs text-slate-300 select-none">
+          <input
+            type="checkbox"
+            className="accent-emerald-500 w-4 h-4"
+            checked={autoEnterApp}
+            onChange={(e) => onAutoEnterAppChange(e.target.checked)}
+          />
+          Langsung masuk aplikasi
+        </label>
       </form>
       <p className="mt-4 text-center text-sm text-slate-400">
         Belum punya akun?{' '}
