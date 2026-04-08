@@ -114,7 +114,12 @@ export default function LoginLandingPage() {
     }
     setWelcomeUserName(user.name || user.email || 'Pengguna');
     setWelcomeTargetPath(getPostLoginPath(user));
-    if (autoEnterApp) goAfterLogin(user);
+    if (autoEnterApp) {
+      goAfterLogin(user);
+      return;
+    }
+    // Tetap di landing saat auto-enter dimatikan.
+    navigate('/pos1', { replace: true });
   };
 
   const loginOwner = async () => {

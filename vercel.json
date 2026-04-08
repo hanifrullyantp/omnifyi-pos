@@ -23,12 +23,6 @@
       "has": [{ "type": "host", "value": "omnifyi.com" }],
       "destination": "https://pos.omnifyi.com/kelola-sales-landing",
       "permanent": true
-    },
-    {
-      "source": "/pos1",
-      "has": [{ "type": "host", "value": "pos.omnifyi.com" }],
-      "destination": "/",
-      "permanent": false
     }
   ],
   "rewrites": [
