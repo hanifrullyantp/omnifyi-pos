@@ -1,6 +1,10 @@
 import type { User, Tenant, Business } from './db';
-import { db } from './db';
+import { db, SUPER_ADMIN_EMAIL, seedFinanceAccountsForBusiness } from './db';
 import { getSupabase } from './supabaseClient';
+
+function isPlatformSuperAdminEmail(email: string) {
+  return email.trim().toLowerCase() === SUPER_ADMIN_EMAIL;
+}
 
 export async function provisionTenantAndBusiness(opts?: { businessName?: string }) {
   const supabase = getSupabase();
@@ -23,27 +27,33 @@ export async function ensureLocalCoreRows(params: {
   businessName?: string;
 }) {
   const now = new Date();
+  const emailNorm = params.email.trim().toLowerCase();
+  const isSuper = isPlatformSuperAdminEmail(emailNorm);
+  const businessName = isSuper
+    ? 'Kantor Pusat'
+    : (params.businessName ?? 'Usaha Baru');
+
   const user: User = {
     id: params.userId,
-    name: params.email.split('@')[0] ?? 'Owner',
-    email: params.email,
+    name: isSuper ? 'Hanif Super Admin' : (params.email.split('@')[0] ?? 'Owner'),
+    email: emailNorm,
     passwordHash: '',
-    role: 'OWNER',
+    role: isSuper ? 'ADMIN_SYSTEM' : 'OWNER',
     createdAt: now,
   };
   const tenant: Tenant = {
     id: params.tenantId,
     ownerId: params.userId,
-    name: 'Tenant',
-    slug: `t-${params.tenantId.slice(0, 8)}`,
-    subscriptionPlan: 'PRO',
+    name: isSuper ? 'Administrasi Platform' : 'Tenant',
+    slug: isSuper ? 'platform-admin' : `t-${params.tenantId.slice(0, 8)}`,
+    subscriptionPlan: isSuper ? 'ENTERPRISE' : 'PRO',
     isActive: true,
     createdAt: now,
   };
   const business: Business = {
     id: params.businessId,
     tenantId: params.tenantId,
-    name: params.businessName ?? 'Usaha Baru',
+    name: businessName,
     taxPercentage: 0,
     serviceChargePercentage: 0,
     isActive: true,
@@ -53,6 +63,8 @@ export async function ensureLocalCoreRows(params: {
   await db.users.put(user);
   await db.tenants.put(tenant);
   await db.businesses.put(business);
+
+  if (isSuper) await seedFinanceAccountsForBusiness(params.businessId, params.tenantId);
 
   return { user, tenant, business };
 }

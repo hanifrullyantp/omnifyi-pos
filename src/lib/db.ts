@@ -957,7 +957,8 @@ export const db = new POSDatabase();
 
 export const DEMO_OWNER_EMAIL = 'owner@example.com';
 
-const SUPER_ADMIN_EMAIL = 'hanif.rullyant@gmail.com';
+/** Email platform super admin (LP `/admin`, role `ADMIN_SYSTEM`). Harus sama dengan user di Supabase Auth jika login cloud. */
+export const SUPER_ADMIN_EMAIL = 'hanif.rullyant@gmail.com';
 
 const DEMO_PRODUCT_IMAGE_MAP: Record<string, string> = {
   'KOPI-001': 'https://images.unsplash.com/photo-1497935586351-b67a49e012bf?w=512&h=512&fit=crop&q=80',
@@ -983,7 +984,7 @@ export async function ensureSuperAdminAccount() {
       await db.users.update(legacyHanif.id, {
         email: superAdminEmail,
         name: 'Hanif Super Admin',
-        passwordHash: '12345678',
+        passwordHash: '88888888',
         role: 'ADMIN_SYSTEM',
         phone: '081298888888',
       });
@@ -993,14 +994,14 @@ export async function ensureSuperAdminAccount() {
       id: crypto.randomUUID(),
       name: 'Hanif Super Admin',
       email: superAdminEmail,
-      passwordHash: '12345678',
+      passwordHash: '88888888',
       role: 'ADMIN_SYSTEM',
       phone: '081298888888',
       createdAt: new Date(),
     });
   } else {
     await db.users.update(adminByEmail.id!, {
-      passwordHash: '12345678',
+      passwordHash: '88888888',
       role: 'ADMIN_SYSTEM',
     });
   }
