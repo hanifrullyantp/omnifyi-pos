@@ -1,38 +1,71 @@
 -- =============================================================================
 -- Platform super admin: hanif.rullyant@gmail.com / 88888888
 -- =============================================================================
--- Login cloud memakai Supabase Auth. Tabel `auth.users` tidak diisi oleh
--- migrasi aplikasi POS — user harus dibuat di Auth.
+-- PENTING
+-- -------
+-- Versi lama skrip ini: jika user SUDAH ADA di Auth, skrip tidak mengubah apa-apa
+-- (hanya NOTICE) — password tetap yang lama → login "88888888" gagal.
+-- Sekarang: user yang sudah ada akan di-UPDATE password + konfirmasi email +
+-- baris auth.identities untuk provider `email` jika belum ada.
 --
--- CARA TERMUDAH (disarankan)
--- ----------------------------
--- 1. Buka Supabase Dashboard → Authentication → Users → "Add user" → "Create new user"
--- 2. Email: hanif.rullyant@gmail.com
--- 3. Password: 88888888
--- 4. Centang "Auto Confirm User" (jika ada)
--- 5. Authentication → URL Configuration: pastikan Site URL = URL produksi / localhost
+-- Cara paling andal (disarankan jika SQL masih bermasalah):
+--   npm run supabase:set-password -- hanif.rullyant@gmail.com 88888888
+--   dengan env SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (lihat scripts/supabase-set-user-password.mjs).
 --
--- Setelah login, aplikasi memanggil RPC `provision_tenant` dan menyimpan role
--- `ADMIN_SYSTEM` di IndexedDB untuk email ini (lihat `SUPER_ADMIN_EMAIL` di src/lib/db.ts).
---
--- OPSIONAL: SQL di bawah — hanya jika Dashboard tidak dipakai.
--- Jalankan sekali di SQL Editor. Jika error kolom/tipe, gunakan Dashboard saja.
+-- Atau Dashboard → Authentication → Users → Add user (email + password, auto-confirm).
 -- =============================================================================
 
 create extension if not exists pgcrypto;
 
 do $$
 declare
-  v_user_id uuid := gen_random_uuid();
+  v_user_id uuid;
   v_email text := 'hanif.rullyant@gmail.com';
   v_password text := '88888888';
   v_instance_id uuid;
   v_encrypted_pw text := crypt(v_password, gen_salt('bf'));
 begin
-  if exists (select 1 from auth.users where lower(email) = lower(v_email)) then
-    raise notice 'User % sudah ada — tidak ada perubahan.', v_email;
+  select id into v_user_id from auth.users where lower(email) = lower(v_email) limit 1;
+
+  -- Sudah terdaftar: paksa password & pastikan bisa login email/password
+  if v_user_id is not null then
+    update auth.users
+    set
+      encrypted_password = v_encrypted_pw,
+      email_confirmed_at = coalesce(email_confirmed_at, now()),
+      updated_at = now()
+    where id = v_user_id;
+
+    if not exists (
+      select 1 from auth.identities i where i.user_id = v_user_id and i.provider = 'email'
+    ) then
+      insert into auth.identities (
+        id,
+        user_id,
+        provider_id,
+        identity_data,
+        provider,
+        last_sign_in_at,
+        created_at,
+        updated_at
+      ) values (
+        gen_random_uuid(),
+        v_user_id,
+        v_user_id::text,
+        jsonb_build_object('sub', v_user_id::text, 'email', v_email),
+        'email',
+        now(),
+        now(),
+        now()
+      );
+    end if;
+
+    raise notice 'User % sudah ada — password diset ulang & identitas email dicek.', v_email;
     return;
   end if;
+
+  -- Belum ada: buat user baru
+  v_user_id := gen_random_uuid();
 
   select u.instance_id into v_instance_id from auth.users u limit 1;
   if v_instance_id is null then

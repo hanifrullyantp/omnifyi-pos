@@ -12,7 +12,8 @@
     "deploy:prod": "npm run build && npx vercel --prod",
     "vercel:preview": "npx vercel",
     "vercel:prod": "npx vercel --prod",
-    "supabase:deploy:cms": "supabase functions deploy cms-landing --no-verify-jwt"
+    "supabase:deploy:cms": "supabase functions deploy cms-landing --no-verify-jwt",
+    "supabase:set-password": "node scripts/supabase-set-user-password.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
